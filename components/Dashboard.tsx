@@ -77,7 +77,7 @@ type WorkspaceView =
   | "getting-started"
   | "community";
 
-type SchedulingTab = "event-types" | "single-use" | "polls";
+type SchedulingTab = "client-appointments" | "event-types" | "single-use" | "polls";
 
 const selectedProductKey = "calendar_selected_product_id";
 const organizationDomain = process.env.NEXT_PUBLIC_ORGANIZATION_EMAIL_DOMAIN || "";
@@ -117,8 +117,41 @@ const defaultProductDraft = {
   description: "",
   icon: "",
   color: "#006bff",
-  status: "active" as "active" | "inactive"
+  status: "active" as "active" | "inactive",
+  approvedDomainsText: "",
+  controllerEmail: "",
+  supportEmail: "",
+  bookingMode: "instant" as "instant" | "approval",
+  widgetEnabled: true,
+  widgetButtonLabel: "Book Now",
+  widgetActionLabel: "Schedule to connect team",
+  widgetPosition: "right" as "right" | "left"
 };
+
+function parseDomainLines(value: string) {
+  return value
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function productPayloadFromDraft(draft: typeof defaultProductDraft) {
+  return {
+    name: draft.name,
+    description: draft.description,
+    icon: draft.icon,
+    color: draft.color,
+    status: draft.status,
+    approved_domains: parseDomainLines(draft.approvedDomainsText),
+    controller_email: draft.controllerEmail.trim().toLowerCase(),
+    support_email: draft.supportEmail.trim().toLowerCase(),
+    booking_mode: draft.bookingMode,
+    widget_enabled: draft.widgetEnabled,
+    widget_button_label: draft.widgetButtonLabel,
+    widget_action_label: draft.widgetActionLabel,
+    widget_position: draft.widgetPosition
+  };
+}
 
 const defaultMemberDraft = {
   full_name: "",
@@ -227,7 +260,7 @@ export default function Dashboard() {
   const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]);
   const [inviteEntireTeam, setInviteEntireTeam] = useState(false);
   const [activeView, setActiveView] = useState<WorkspaceView>("scheduling");
-  const [schedulingTab, setSchedulingTab] = useState<SchedulingTab>("event-types");
+  const [schedulingTab, setSchedulingTab] = useState<SchedulingTab>("client-appointments");
   const [eventSearch, setEventSearch] = useState("");
   const [meetingSearch, setMeetingSearch] = useState("");
   const [contactSearch, setContactSearch] = useState("");
@@ -516,7 +549,7 @@ export default function Dashboard() {
     setSaving("product");
     setError("");
     try {
-      const created = await api.createProduct(token, productDraft);
+      const created = await api.createProduct(token, productPayloadFromDraft(productDraft));
       setProducts((current) => [...current, created]);
       setSelectedProduct(created);
       localStorage.setItem(selectedProductKey, created.id);
@@ -540,7 +573,7 @@ export default function Dashboard() {
     setSaving("product-update");
     setError("");
     try {
-      const updated = await api.updateProduct(token, selectedProduct.id, productDraft);
+      const updated = await api.updateProduct(token, selectedProduct.id, productPayloadFromDraft(productDraft));
       setSelectedProduct(updated);
       setProducts((current) => current.map((product) => (product.id === updated.id ? updated : product)));
       setShowProductEdit(false);
@@ -972,11 +1005,62 @@ export default function Dashboard() {
     setSaving(booking.id);
     setError("");
     try {
-      await api.cancelClientBooking(token, booking.id, "Cancelled from Availability page", selectedProduct.id);
+      await api.cancelClientBooking(token, booking.id, "Cancelled from Scheduling page", selectedProduct.id);
       await reloadTeamAvailability();
       setNotice("Client booking cancelled");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to cancel client booking");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function assignClientBooking(booking: TeamAvailability["bookings"][number], memberId: string) {
+    if (!selectedProduct || !memberId) {
+      return;
+    }
+    setSaving(`assign:${booking.id}`);
+    setError("");
+    try {
+      await api.assignClientBooking(token, selectedProduct.id, booking.id, memberId, "Assigned from Scheduling page");
+      await reloadTeamAvailability();
+      setNotice("Booking assignment updated");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to assign booking");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function approveClientBooking(booking: TeamAvailability["bookings"][number]) {
+    if (!selectedProduct) {
+      return;
+    }
+    setSaving(`approve:${booking.id}`);
+    setError("");
+    try {
+      await api.approveClientBooking(token, selectedProduct.id, booking.id, "Approved from Scheduling page");
+      await reloadTeamAvailability();
+      setNotice("Booking approved and notifications triggered");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to approve booking");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function rejectClientBooking(booking: TeamAvailability["bookings"][number]) {
+    if (!selectedProduct || !window.confirm(`Reject ${booking.issue_title}?`)) {
+      return;
+    }
+    setSaving(`reject:${booking.id}`);
+    setError("");
+    try {
+      await api.rejectClientBooking(token, selectedProduct.id, booking.id, "Rejected from Scheduling page");
+      await reloadTeamAvailability();
+      setNotice("Booking request rejected");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to reject booking");
     } finally {
       setSaving("");
     }
@@ -1046,7 +1130,15 @@ export default function Dashboard() {
       description: selectedProduct.description,
       icon: selectedProduct.icon,
       color: selectedProduct.color,
-      status: selectedProduct.status
+      status: selectedProduct.status,
+      approvedDomainsText: (selectedProduct.approved_domains || []).join("\n"),
+      controllerEmail: selectedProduct.controller_email || "",
+      supportEmail: selectedProduct.support_email || "",
+      bookingMode: selectedProduct.booking_mode || "instant",
+      widgetEnabled: selectedProduct.widget_enabled,
+      widgetButtonLabel: selectedProduct.widget_button_label || "Book Now",
+      widgetActionLabel: selectedProduct.widget_action_label || "Schedule to connect team",
+      widgetPosition: selectedProduct.widget_position || "right"
     });
     setShowProductEdit(true);
     setActiveView("product-settings");
@@ -1327,6 +1419,42 @@ export default function Dashboard() {
                     onChange={(event) => setProductDraft((current) => ({ ...current, color: event.target.value }))}
                   />
                 </label>
+                <label className="wide-field">
+                  Approved website domains
+                  <textarea
+                    placeholder="https://www.example.com"
+                    value={productDraft.approvedDomainsText}
+                    onChange={(event) => setProductDraft((current) => ({ ...current, approvedDomainsText: event.target.value }))}
+                  />
+                  <small className="field-note">One domain per line. Required before embedding this widget on an external website.</small>
+                </label>
+                <label>
+                  Controller email
+                  <input
+                    type="email"
+                    value={productDraft.controllerEmail}
+                    onChange={(event) => setProductDraft((current) => ({ ...current, controllerEmail: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Booking mode
+                  <select
+                    value={productDraft.bookingMode}
+                    onChange={(event) =>
+                      setProductDraft((current) => ({ ...current, bookingMode: event.target.value as "instant" | "approval" }))
+                    }
+                  >
+                    <option value="instant">Instant booking</option>
+                    <option value="approval">Approval required</option>
+                  </select>
+                </label>
+                <label className="wide-field">
+                  Widget action label
+                  <input
+                    value={productDraft.widgetActionLabel}
+                    onChange={(event) => setProductDraft((current) => ({ ...current, widgetActionLabel: event.target.value }))}
+                  />
+                </label>
                 <button className="blue-action full wide-field" disabled={saving === "product"} type="submit">
                   {saving === "product" ? <Loader2 className="spin" size={18} /> : <Plus size={18} />}
                   Add product
@@ -1361,6 +1489,7 @@ export default function Dashboard() {
               <SchedulingPage
                 activeTab={schedulingTab}
                 canManage={can(selectedProduct, "manage_event_types")}
+                canManageAppointments={can(selectedProduct, "manage_availability")}
                 events={events}
                 productInactive={productInactive}
                 publicBase={publicBase}
@@ -1368,11 +1497,16 @@ export default function Dashboard() {
                 selectedProduct={selectedProduct}
                 saving={saving}
                 stats={stats}
+                teamAvailability={teamAvailability}
                 user={user}
+                onApproveClientBooking={approveClientBooking}
+                onAssignClientBooking={assignClientBooking}
+                onCancelClientBooking={cancelClientBooking}
                 onCopyLink={copyLink}
                 onCreate={() => openEventEditor("create")}
                 onDelete={deleteEvent}
                 onEdit={(eventType) => openEventEditor("edit", eventType)}
+                onRejectClientBooking={rejectClientBooking}
                 onSearchChange={setEventSearch}
                 onTabChange={setSchedulingTab}
                 onToggleActive={toggleEvent}
@@ -2232,7 +2366,7 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    <div className="availability-grid">
+                    <div className="availability-grid availability-team-grid">
                       <div className="panel">
                         <div className="panel-heading">
                           <div>
@@ -2253,50 +2387,6 @@ export default function Dashboard() {
                               {member.reason && <small>{member.reason}</small>}
                             </div>
                           ))}
-                        </div>
-                      </div>
-
-                      <div className="panel">
-                        <div className="panel-heading">
-                          <div>
-                            <h2>Client appointments</h2>
-                            <p>Notification records remain visible when email delivery is disabled or pending.</p>
-                          </div>
-                        </div>
-                        <div className="client-booking-list">
-                          {teamAvailability.bookings.map((booking) => {
-                            const notification = teamAvailability.notifications.find((item) => item.booking_id === booking.id);
-                            return (
-                              <div className="client-booking-row" key={booking.id}>
-                                <div>
-                                  <strong>{booking.issue_title}</strong>
-                                  <span>
-                                    {booking.client_name} - {booking.priority}
-                                  </span>
-                                </div>
-	                                <span>{formatDateTime(booking.start_time_utc)}</span>
-	                                <span>{booking.assigned_member_name || "Assigned member"}</span>
-	                                <span className="delivery-status">{notification?.status || "NO_NOTIFICATION"}</span>
-	                                <button
-	                                  className="outline-action compact"
-	                                  disabled={
-	                                    productInactive ||
-	                                    saving === booking.id ||
-	                                    booking.status === "cancelled" ||
-	                                    (!can(selectedProduct, "manage_availability") && booking.assigned_member_id !== user.id)
-	                                  }
-	                                  onClick={() => cancelClientBooking(booking)}
-	                                  type="button"
-	                                >
-	                                  {saving === booking.id ? <Loader2 className="spin" size={16} /> : <X size={16} />}
-	                                  Cancel
-	                                </button>
-	                              </div>
-                            );
-                          })}
-                          {teamAvailability.bookings.length === 0 && (
-                            <p className="empty-copy">No client appointments are booked for this product yet.</p>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -2392,6 +2482,93 @@ export default function Dashboard() {
                           onChange={(event) => setProductDraft((current) => ({ ...current, color: event.target.value }))}
                         />
                       </label>
+                      <label>
+                        Widget enabled
+                        <select
+                          value={productDraft.widgetEnabled ? "true" : "false"}
+                          onChange={(event) =>
+                            setProductDraft((current) => ({ ...current, widgetEnabled: event.target.value === "true" }))
+                          }
+                        >
+                          <option value="true">Enabled</option>
+                          <option value="false">Disabled</option>
+                        </select>
+                      </label>
+                      <label>
+                        Booking mode
+                        <select
+                          value={productDraft.bookingMode}
+                          onChange={(event) =>
+                            setProductDraft((current) => ({ ...current, bookingMode: event.target.value as "instant" | "approval" }))
+                          }
+                        >
+                          <option value="instant">Instant booking</option>
+                          <option value="approval">Approval required</option>
+                        </select>
+                      </label>
+                      <label className="wide-field">
+                        Approved website domains
+                        <textarea
+                          placeholder="https://www.example.com"
+                          value={productDraft.approvedDomainsText}
+                          onChange={(event) =>
+                            setProductDraft((current) => ({ ...current, approvedDomainsText: event.target.value }))
+                          }
+                        />
+                        <small className="field-note">One exact origin per line, including https:// when used by the website.</small>
+                      </label>
+                      <label>
+                        Controller email
+                        <input
+                          type="email"
+                          value={productDraft.controllerEmail}
+                          onChange={(event) => setProductDraft((current) => ({ ...current, controllerEmail: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        Support email
+                        <input
+                          type="email"
+                          value={productDraft.supportEmail}
+                          onChange={(event) => setProductDraft((current) => ({ ...current, supportEmail: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        Button label
+                        <input
+                          value={productDraft.widgetButtonLabel}
+                          onChange={(event) =>
+                            setProductDraft((current) => ({ ...current, widgetButtonLabel: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Widget position
+                        <select
+                          value={productDraft.widgetPosition}
+                          onChange={(event) =>
+                            setProductDraft((current) => ({ ...current, widgetPosition: event.target.value as "right" | "left" }))
+                          }
+                        >
+                          <option value="right">Right side</option>
+                          <option value="left">Left side</option>
+                        </select>
+                      </label>
+                      <label className="wide-field">
+                        Widget action label
+                        <input
+                          value={productDraft.widgetActionLabel}
+                          onChange={(event) =>
+                            setProductDraft((current) => ({ ...current, widgetActionLabel: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <div className="wide-field widget-install-box">
+                        <span>Installation snippet</span>
+                        <code>
+                          {`<script src="${publicBase}/widget.js" data-workspace-id="${selectedProduct.public_booking_token}" data-position="${selectedProduct.widget_position || "right"}" async></script>`}
+                        </code>
+                      </div>
                       <button className="blue-action full wide-field" disabled={saving === "product-update"} type="submit">
                         {saving === "product-update" ? <Loader2 className="spin" size={18} /> : <Save size={18} />}
                         Save product

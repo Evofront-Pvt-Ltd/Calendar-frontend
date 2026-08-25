@@ -442,6 +442,12 @@ h2 {
   color: var(--green);
 }
 
+.status-pill.pending_approval,
+.status-pill.rejected {
+  background: #fff8e6;
+  color: var(--amber);
+}
+
 .status-pill.cancelled {
   background: var(--coral-soft);
   color: var(--coral);
@@ -593,6 +599,59 @@ h2 {
   font-weight: 800;
 }
 
+.booking-assignee-select {
+  min-width: 170px;
+  gap: 4px;
+  font-size: 0.76rem;
+}
+
+.booking-assignee-select select {
+  min-height: 34px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+}
+
+.widget-install-box {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.widget-install-box span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.widget-install-box code {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.selected-workspace-note {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.selected-workspace-note span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.selected-workspace-note strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
 .source-pill {
   align-self: center;
   border-radius: 999px;
@@ -640,7 +699,7 @@ h2 {
 
 .client-booking-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(140px, 0.8fr) minmax(130px, 0.8fr) auto auto;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
   align-items: center;
   border: 1px solid #d8e1ee;
@@ -2273,6 +2332,219 @@ Google OAuth button mark is parked for future reactivation.
   display: grid;
   gap: 20px;
   padding-top: 22px;
+}
+
+.client-appointments-panel {
+  margin-top: 18px;
+}
+
+.client-appointments-tab-panel .client-appointments-panel {
+  margin-top: 0;
+}
+
+.appointments-heading {
+  align-items: flex-start;
+}
+
+.appointment-counts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.appointment-counts span {
+  border-radius: 999px;
+  background: #edf4ff;
+  color: #0057d9;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 7px 10px;
+}
+
+.appointments-loading,
+.appointments-empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px dashed #b7cae4;
+  border-radius: 8px;
+  background: #f8fbff;
+  color: #315273;
+  padding: 16px;
+}
+
+.appointments-empty strong {
+  color: #002a5c;
+}
+
+.appointments-empty p {
+  margin-top: 3px;
+  color: #526a86;
+  font-weight: 700;
+}
+
+.client-appointment-board {
+  display: grid;
+  gap: 12px;
+}
+
+.client-appointment-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #d0def0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+  box-shadow: 0 1px 0 rgba(0, 42, 92, 0.02);
+}
+
+.client-appointment-card.pending_approval {
+  border-color: #f4d488;
+  background: #fffdf7;
+}
+
+.client-appointment-card.cancelled,
+.client-appointment-card.rejected {
+  background: #fbfcfe;
+}
+
+.appointment-card-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.appointment-title-block {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.appointment-title-block strong {
+  overflow: hidden;
+  color: #002a5c;
+  font-size: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appointment-title-block span {
+  color: #526a86;
+  font-size: 0.84rem;
+  font-weight: 850;
+  text-transform: capitalize;
+}
+
+.appointment-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.appointment-detail {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  border: 1px solid #edf2f7;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 10px;
+}
+
+.appointment-detail span {
+  color: #526a86;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.appointment-detail strong {
+  overflow: hidden;
+  color: #002a5c;
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appointment-description {
+  border-left: 3px solid #b7cae4;
+  color: #315273;
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.5;
+  padding-left: 10px;
+}
+
+.appointment-description strong {
+  color: #002a5c;
+}
+
+.appointment-ops-grid {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.9fr) minmax(120px, 0.7fr) minmax(120px, 0.7fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.appointment-mini-stat,
+.appointment-link-muted {
+  display: inline-flex;
+  min-height: 38px;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  border-radius: 8px;
+  background: #edf4ff;
+  color: #315273;
+  font-size: 0.82rem;
+  font-weight: 850;
+  padding: 8px 10px;
+}
+
+.appointment-mini-stat span,
+.appointment-link-muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appointment-link-muted {
+  justify-content: center;
+  background: #f4f7fb;
+  color: #526a86;
+}
+
+.appointment-link-action {
+  min-height: 38px;
+  justify-content: center;
+}
+
+.appointment-history {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: #526a86;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.appointment-history span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appointment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.availability-team-grid {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .scheduling-metric-strip {
@@ -4799,13 +5071,29 @@ Google OAuth button mark is parked for future reactivation.
     overflow-x: auto;
   }
 
-  .scheduling-metric-strip,
-  .event-type-row,
-  .location-option-grid,
-  .drawer-two-columns,
-  .question-row {
-    grid-template-columns: 1fr;
-  }
+	  .scheduling-metric-strip,
+	  .event-type-row,
+	  .appointment-card-top,
+	  .appointment-detail-grid,
+	  .appointment-ops-grid,
+	  .location-option-grid,
+	  .drawer-two-columns,
+	  .question-row {
+	    grid-template-columns: 1fr;
+	  }
+
+	  .appointment-counts,
+	  .appointment-actions {
+	    justify-content: flex-start;
+	  }
+
+	  .appointment-title-block strong,
+	  .appointment-detail strong,
+	  .appointment-mini-stat span,
+	  .appointment-history span,
+	  .appointment-link-muted {
+	    white-space: normal;
+	  }
 
   .event-type-row {
     gap: 0;
@@ -5268,6 +5556,20 @@ Google OAuth button mark is parked for future reactivation.
   box-shadow: 0 24px 70px rgba(9, 33, 68, 0.18);
   padding: 12px;
   transform: translateY(-50%);
+}
+
+.embedded-widget-shell {
+  width: 100vw;
+  min-height: 100vh;
+  background: transparent;
+}
+
+.book-now-widget.embedded {
+  right: 0;
+}
+
+.book-now-widget.embedded .interview-modal-backdrop {
+  position: fixed;
 }
 
 .book-panel-close,

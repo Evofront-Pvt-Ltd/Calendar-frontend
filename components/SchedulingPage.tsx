@@ -16,13 +16,15 @@ import {
   Trash2,
   Users
 } from "lucide-react";
-import type { DashboardStats, EventType, Product, User } from "@/types";
+import ClientAppointmentsPanel from "@/components/ClientAppointmentsPanel";
+import type { ClientBooking, DashboardStats, EventType, Product, TeamAvailability, User } from "@/types";
 
-type SchedulingTab = "event-types" | "single-use" | "polls";
+type SchedulingTab = "client-appointments" | "event-types" | "single-use" | "polls";
 
 type SchedulingPageProps = {
   activeTab: SchedulingTab;
   canManage: boolean;
+  canManageAppointments: boolean;
   events: EventType[];
   productInactive: boolean;
   publicBase: string;
@@ -30,11 +32,16 @@ type SchedulingPageProps = {
   selectedProduct: Product;
   saving: string;
   stats: DashboardStats;
+  teamAvailability: TeamAvailability | null;
   user: User;
+  onApproveClientBooking: (booking: ClientBooking) => void;
+  onAssignClientBooking: (booking: ClientBooking, memberId: string) => void;
+  onCancelClientBooking: (booking: ClientBooking) => void;
   onCopyLink: (path: string) => void;
   onCreate: () => void;
   onDelete: (eventType: EventType) => void;
   onEdit: (eventType: EventType) => void;
+  onRejectClientBooking: (booking: ClientBooking) => void;
   onSearchChange: (value: string) => void;
   onTabChange: (tab: SchedulingTab) => void;
   onToggleActive: (eventType: EventType) => void;
@@ -46,6 +53,7 @@ const scopeOptions = ["My Calendar", "Product", "Team", "Team member", "Organiza
 export default function SchedulingPage({
   activeTab,
   canManage,
+  canManageAppointments,
   events,
   productInactive,
   publicBase,
@@ -53,11 +61,16 @@ export default function SchedulingPage({
   selectedProduct,
   saving,
   stats,
+  teamAvailability,
   user,
+  onApproveClientBooking,
+  onAssignClientBooking,
+  onCancelClientBooking,
   onCopyLink,
   onCreate,
   onDelete,
   onEdit,
+  onRejectClientBooking,
   onSearchChange,
   onTabChange,
   onToggleActive,
@@ -105,6 +118,15 @@ export default function SchedulingPage({
 
       <div className="scheduling-tabs" role="tablist" aria-label="Scheduling sections">
         <button
+          aria-selected={activeTab === "client-appointments"}
+          className={activeTab === "client-appointments" ? "active" : ""}
+          onClick={() => onTabChange("client-appointments")}
+          role="tab"
+          type="button"
+        >
+          Client appointments
+        </button>
+        <button
           aria-selected={activeTab === "event-types"}
           className={activeTab === "event-types" ? "active" : ""}
           onClick={() => onTabChange("event-types")}
@@ -132,6 +154,23 @@ export default function SchedulingPage({
           Meeting polls
         </button>
       </div>
+
+      {activeTab === "client-appointments" && (
+        <div className="scheduling-panel client-appointments-tab-panel" role="tabpanel">
+          <ClientAppointmentsPanel
+            canManageBooking={canManageAppointments}
+            productInactive={productInactive}
+            selectedProduct={selectedProduct}
+            saving={saving}
+            teamAvailability={teamAvailability}
+            user={user}
+            onApprove={onApproveClientBooking}
+            onAssign={onAssignClientBooking}
+            onCancel={onCancelClientBooking}
+            onReject={onRejectClientBooking}
+          />
+        </div>
+      )}
 
       {activeTab === "event-types" && (
         <div className="scheduling-panel" role="tabpanel">

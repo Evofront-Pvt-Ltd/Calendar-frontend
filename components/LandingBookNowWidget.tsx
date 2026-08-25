@@ -34,6 +34,13 @@ type InterviewForm = {
   consent: boolean;
 };
 
+type LandingBookNowWidgetProps = {
+  widgetId?: string;
+  embedded?: boolean;
+  hostOrigin?: string;
+  singleWorkspaceMode?: boolean;
+};
+
 function toDateInput(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -87,7 +94,34 @@ function isFocusable(element: Element): element is HTMLElement {
   return element instanceof HTMLElement && !element.hasAttribute("disabled") && element.tabIndex !== -1;
 }
 
-export default function LandingBookNowWidget() {
+function currentHostOrigin(explicitOrigin = "") {
+  if (explicitOrigin) {
+    return explicitOrigin;
+  }
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const params = new URLSearchParams(window.location.search);
+  const queryOrigin = params.get("host_origin") || "";
+  if (queryOrigin) {
+    return queryOrigin;
+  }
+  if (document.referrer) {
+    try {
+      return new URL(document.referrer).origin;
+    } catch {
+      return "";
+    }
+  }
+  return window.location.origin;
+}
+
+export default function LandingBookNowWidget({
+  widgetId = "",
+  embedded = false,
+  hostOrigin = "",
+  singleWorkspaceMode = false
+}: LandingBookNowWidgetProps) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
@@ -101,6 +135,8 @@ export default function LandingBookNowWidget() {
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsLoaded, setProductsLoaded] = useState(false);
   const [productError, setProductError] = useState("");
+  const [buttonLabel, setButtonLabel] = useState("Book Now");
+  const [actionLabel, setActionLabel] = useState("Schedule to connect team");
   const [step, setStep] = useState<BookingStep>(0);
   const [selectedDate, setSelectedDate] = useState(dates[0]);
   const [slots, setSlots] = useState<ProductAvailableSlot[]>([]);
@@ -139,7 +175,21 @@ export default function LandingBookNowWidget() {
     setProductsLoading(true);
     setProductError("");
     try {
-      const loaded = await api.publicProducts();
+      if (widgetId) {
+        const config = await api.widgetConfig(widgetId, currentHostOrigin(hostOrigin));
+        setButtonLabel(config.button_label || "Book Now");
+        setActionLabel(config.action_label || "Schedule to connect team");
+        if (!config.enabled) {
+          throw new Error("This booking widget is not active");
+        }
+        const loaded = [config.product];
+        setProducts(loaded);
+        setProductsLoaded(true);
+        setSelectedProductToken((current) => current || loaded[0].booking_token);
+        return;
+      }
+      const loadedProducts = await api.publicProducts();
+      const loaded = singleWorkspaceMode && loadedProducts.length > 0 ? [loadedProducts[0]] : loadedProducts;
       setProducts(loaded);
       setProductsLoaded(true);
       if (loaded.length > 0) {
@@ -155,9 +205,11 @@ export default function LandingBookNowWidget() {
   async function loadSlots(productToken: string, date: string) {
     setSlotsLoading(true);
     setSlotError("");
-    setSelectedSlot(null);
+      setSelectedSlot(null);
     try {
-      const loaded = await api.publicProductSlots(productToken, date);
+      const loaded = widgetId
+        ? await api.widgetAvailability(widgetId, date, currentHostOrigin(hostOrigin))
+        : await api.publicProductSlots(productToken, date);
       setSlots(loaded);
     } catch (caught) {
       setSlots([]);
@@ -224,7 +276,7 @@ export default function LandingBookNowWidget() {
     setSubmitting(true);
     setSubmitError("");
     try {
-      const created = await api.bookProductSupport(selectedProduct.booking_token, {
+      const payload = {
         slot_key: selectedSlot.slot_key,
         client_name: form.name.trim(),
         client_email: form.email.trim().toLowerCase(),
@@ -237,9 +289,16 @@ export default function LandingBookNowWidget() {
         priority: "normal",
         client_timezone: form.timezone,
         consent_confirmed: form.consent
-      });
+      } as const;
+      const created = widgetId
+        ? await api.bookWidget(widgetId, currentHostOrigin(hostOrigin), payload)
+        : await api.bookProductSupport(selectedProduct.booking_token, payload);
       setBooking(created);
-      setNotice("Your team connection booking was submitted successfully.");
+      setNotice(
+        created.status === "pending_approval"
+          ? "Your request was sent to the workspace controller for review."
+          : "Your team connection booking was submitted successfully."
+      );
     } catch (caught) {
       setSubmitError(caught instanceof Error ? caught.message : "Unable to confirm this booking");
       if (selectedProduct) {
@@ -332,9 +391,23 @@ export default function LandingBookNowWidget() {
     }
   }, [modalOpen, selectedProductToken, selectedDate]);
 
+  useEffect(() => {
+    if (!embedded || typeof window === "undefined") {
+      return;
+    }
+    const message = {
+      type: "calendar-booking:resize",
+      width: modalOpen ? 880 : expanded ? 360 : 96,
+      height: modalOpen ? 720 : expanded ? 190 : 176,
+      expanded,
+      modalOpen
+    };
+    window.parent?.postMessage(message, "*");
+  }, [embedded, expanded, modalOpen]);
+
   return (
     <>
-      <aside className={`book-now-widget${expanded ? " expanded" : ""}`} aria-label="Booking shortcuts">
+      <aside className={`book-now-widget${expanded ? " expanded" : ""}${embedded ? " embedded" : ""}`} aria-label="Booking shortcuts">
         <button
           ref={triggerRef}
           aria-expanded={expanded}
@@ -346,7 +419,7 @@ export default function LandingBookNowWidget() {
           type="button"
         >
           <CalendarCheck size={20} />
-          <span>Book Now</span>
+          <span>{buttonLabel}</span>
           <ChevronLeft className="book-now-tab-chevron" size={17} />
         </button>
         {expanded && (
@@ -359,7 +432,7 @@ export default function LandingBookNowWidget() {
                 <CalendarDays size={21} />
               </span>
               <span>
-                <strong>Schedule to connect team</strong>
+                <strong>{actionLabel}</strong>
                 <small>Choose a convenient date and time</small>
               </span>
               <ChevronRight size={18} />
@@ -383,12 +456,12 @@ export default function LandingBookNowWidget() {
             role="dialog"
           >
             <header className="interview-modal-header">
-              <button aria-label="Close schedule to connect team" className="modal-icon-button" onClick={closeScheduler} type="button">
+              <button aria-label={`Close ${actionLabel}`} className="modal-icon-button" onClick={closeScheduler} type="button">
                 <X size={20} />
               </button>
               <div>
                 <span>Public booking</span>
-                <h2 id="interview-modal-title">Schedule to connect team</h2>
+                <h2 id="interview-modal-title">{actionLabel}</h2>
                 <p id="interview-modal-description">Share a few details and choose a time that works for you.</p>
               </div>
               <ol className="interview-stepper" aria-label="Booking progress">
@@ -413,7 +486,9 @@ export default function LandingBookNowWidget() {
                         productError={productError}
                         products={products}
                         productsLoading={productsLoading}
+                        selectedProduct={selectedProduct}
                         selectedProductToken={selectedProductToken}
+                        hideProductSelector={embedded || Boolean(widgetId) || singleWorkspaceMode || products.length <= 1}
                         updateForm={updateForm}
                         onProductChange={(token) => {
                           setSelectedProductToken(token);
@@ -479,7 +554,7 @@ export default function LandingBookNowWidget() {
                     ) : (
                       <button className="booking-primary-action" disabled={!canSubmit} type="submit">
                         {submitting ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
-                        Confirm Booking
+                        {selectedProduct?.booking_mode === "approval" ? "Confirm Request" : "Confirm Booking"}
                       </button>
                     )}
                   </>
@@ -495,17 +570,21 @@ export default function LandingBookNowWidget() {
 
 function DetailsStep({
   form,
+  hideProductSelector,
   productError,
   products,
   productsLoading,
+  selectedProduct,
   selectedProductToken,
   updateForm,
   onProductChange
 }: {
   form: InterviewForm;
+  hideProductSelector: boolean;
   productError: string;
   products: PublicLandingProduct[];
   productsLoading: boolean;
+  selectedProduct: PublicLandingProduct | null;
   selectedProductToken: string;
   updateForm: <K extends keyof InterviewForm>(key: K, value: InterviewForm[K]) => void;
   onProductChange: (token: string) => void;
@@ -517,7 +596,7 @@ function DetailsStep({
         <input autoComplete="name" required value={form.name} onChange={(event) => updateForm("name", event.target.value)} />
       </label>
       <label>
-        Business email
+        Email address
         <input
           autoComplete="email"
           required
@@ -540,24 +619,32 @@ function DetailsStep({
           onChange={(event) => updateForm("phone", event.target.value)}
         />
       </label>
-      <label className="wide-field">
-        Product
-        <select
-          disabled={productsLoading || products.length <= 1}
-          required
-          value={selectedProductToken}
-          onChange={(event) => onProductChange(event.target.value)}
-        >
-          {productsLoading && <option>Loading products...</option>}
-          {!productsLoading && products.length === 0 && <option value="">No active products available</option>}
-          {products.map((product) => (
-            <option key={product.booking_token} value={product.booking_token}>
-              {product.name}
-            </option>
-          ))}
-        </select>
-        {productError && <small className="field-note error">{productError}</small>}
-      </label>
+      {hideProductSelector ? (
+        <div className="wide-field selected-workspace-note" aria-live="polite">
+          <span>Booking with</span>
+          <strong>{productsLoading ? "Loading workspace..." : selectedProduct?.name || "Workspace"}</strong>
+          {productError && <small className="field-note error">{productError}</small>}
+        </div>
+      ) : (
+        <label className="wide-field">
+          Product
+          <select
+            disabled={productsLoading || products.length <= 1}
+            required
+            value={selectedProductToken}
+            onChange={(event) => onProductChange(event.target.value)}
+          >
+            {productsLoading && <option>Loading products...</option>}
+            {!productsLoading && products.length === 0 && <option value="">No active products available</option>}
+            {products.map((product) => (
+              <option key={product.booking_token} value={product.booking_token}>
+                {product.name}
+              </option>
+            ))}
+          </select>
+          {productError && <small className="field-note error">{productError}</small>}
+        </label>
+      )}
       <label className="wide-field">
         Product, account, or reference number
         <input value={form.productReference} onChange={(event) => updateForm("productReference", event.target.value)} />
@@ -735,12 +822,13 @@ function SuccessState({
   notice: string;
   onCopyMeetLink: () => void;
 }) {
+  const pendingApproval = booking.status === "pending_approval";
   return (
     <div className="interview-success">
       <span className="success-mark">
         <Check size={28} />
       </span>
-      <h3>Your team connection has been scheduled</h3>
+      <h3>{pendingApproval ? "Your team connection request has been received" : "Your team connection has been scheduled"}</h3>
       <p>Reference: {booking.public_booking_reference}</p>
       <div className="review-card">
         <div>
@@ -759,9 +847,10 @@ function SuccessState({
         </div>
         <div>
           <span>Status</span>
-          <strong>{booking.status === "scheduled" ? "Confirmed" : booking.status}</strong>
+          <strong>{pendingApproval ? "Pending controller approval" : booking.status === "scheduled" ? "Confirmed" : booking.status}</strong>
         </div>
       </div>
+      {pendingApproval && <p>The workspace controller will review this request and send the final meeting invitation after approval.</p>}
       {booking.google_meet_url ? (
         <button className="booking-primary-action inline-action" onClick={onCopyMeetLink} type="button">
           <Video size={18} />

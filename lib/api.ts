@@ -19,6 +19,7 @@ import type {
   PublicProductBooking,
   Slot,
   TeamAvailability,
+  WidgetConfig,
   User
 } from "@/types";
 
@@ -34,6 +35,21 @@ type RegistrationDelivery = {
   resend_available_in_seconds: number;
   delivery_provider: "console" | "sendgrid";
   message: string;
+};
+
+type PublicBookingPayload = {
+  slot_key: string;
+  client_name: string;
+  client_email: string;
+  client_phone?: string;
+  client_company: string;
+  product_reference_number?: string;
+  issue_category: string;
+  issue_title: string;
+  issue_description: string;
+  priority: "low" | "normal" | "high" | "urgent";
+  client_timezone: string;
+  consent_confirmed: boolean;
 };
 
 export class ApiError extends Error {
@@ -153,7 +169,21 @@ export const api = {
   },
   createProduct(
     token: string,
-    payload: { name: string; description: string; icon: string; color: string; status: "active" | "inactive" }
+    payload: {
+      name: string;
+      description: string;
+      icon: string;
+      color: string;
+      status: "active" | "inactive";
+      approved_domains?: string[];
+      controller_email?: string;
+      support_email?: string;
+      booking_mode?: "instant" | "approval";
+      widget_enabled?: boolean;
+      widget_button_label?: string;
+      widget_action_label?: string;
+      widget_position?: "right" | "left";
+    }
   ) {
     return request<Product>("/api/products", {
       method: "POST",
@@ -164,7 +194,21 @@ export const api = {
   updateProduct(
     token: string,
     productId: string,
-    payload: Partial<{ name: string; description: string; icon: string; color: string; status: "active" | "inactive" }>
+    payload: Partial<{
+      name: string;
+      description: string;
+      icon: string;
+      color: string;
+      status: "active" | "inactive";
+      approved_domains: string[];
+      controller_email: string;
+      support_email: string;
+      booking_mode: "instant" | "approval";
+      widget_enabled: boolean;
+      widget_button_label: string;
+      widget_action_label: string;
+      widget_position: "right" | "left";
+    }>
   ) {
     return request<Product>(`/api/products/${productId}`, {
       method: "PATCH",
@@ -329,6 +373,36 @@ export const api = {
       body: JSON.stringify({ reason })
     });
   },
+  assignClientBooking(token: string, productId: string, bookingId: string, memberId: string, reason: string) {
+    return request<ClientBooking>(
+      `/api/availability/bookings/${encodeURIComponent(bookingId)}/assignment?product_id=${encodeURIComponent(productId)}`,
+      {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ member_id: memberId, reason })
+      }
+    );
+  },
+  approveClientBooking(token: string, productId: string, bookingId: string, reason: string) {
+    return request<ClientBooking>(
+      `/api/availability/bookings/${encodeURIComponent(bookingId)}/approve?product_id=${encodeURIComponent(productId)}`,
+      {
+        method: "POST",
+        token,
+        body: JSON.stringify({ reason })
+      }
+    );
+  },
+  rejectClientBooking(token: string, productId: string, bookingId: string, reason: string) {
+    return request<ClientBooking>(
+      `/api/availability/bookings/${encodeURIComponent(bookingId)}/reject?product_id=${encodeURIComponent(productId)}`,
+      {
+        method: "POST",
+        token,
+        body: JSON.stringify({ reason })
+      }
+    );
+  },
   contacts(token: string, search = "", productId?: string) {
     const query = search ? `?search=${encodeURIComponent(search)}` : "";
     return request<Contact[]>(withProduct(`/api/contacts${query}`, productId), { token });
@@ -381,23 +455,35 @@ export const api = {
   },
   bookProductSupport(
     bookingToken: string,
-    payload: {
-      slot_key: string;
-      client_name: string;
-      client_email: string;
-      client_phone?: string;
-      client_company: string;
-      product_reference_number?: string;
-      issue_category: string;
-      issue_title: string;
-      issue_description: string;
-      priority: "low" | "normal" | "high" | "urgent";
-      client_timezone: string;
-      consent_confirmed: boolean;
-    }
+    payload: PublicBookingPayload
   ) {
     return request<ClientBooking>(`/api/public/products/${encodeURIComponent(bookingToken)}/book`, {
       method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  widgetConfig(publicWidgetId: string, hostOrigin = "") {
+    return request<WidgetConfig>(`/api/widget/${encodeURIComponent(publicWidgetId)}/config`, {
+      headers: hostOrigin ? { "X-Widget-Origin": hostOrigin } : undefined
+    });
+  },
+  widgetProducts(publicWidgetId: string, hostOrigin = "") {
+    return request<PublicLandingProduct[]>(`/api/widget/${encodeURIComponent(publicWidgetId)}/products`, {
+      headers: hostOrigin ? { "X-Widget-Origin": hostOrigin } : undefined
+    });
+  },
+  widgetAvailability(publicWidgetId: string, date: string, hostOrigin = "") {
+    return request<ProductAvailableSlot[]>(
+      `/api/widget/${encodeURIComponent(publicWidgetId)}/availability?date=${encodeURIComponent(date)}`,
+      {
+        headers: hostOrigin ? { "X-Widget-Origin": hostOrigin } : undefined
+      }
+    );
+  },
+  bookWidget(publicWidgetId: string, hostOrigin: string, payload: PublicBookingPayload) {
+    return request<ClientBooking>(`/api/widget/${encodeURIComponent(publicWidgetId)}/bookings`, {
+      method: "POST",
+      headers: hostOrigin ? { "X-Widget-Origin": hostOrigin } : undefined,
       body: JSON.stringify(payload)
     });
   },

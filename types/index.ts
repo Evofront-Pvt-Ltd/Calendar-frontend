@@ -115,7 +115,7 @@ export type ClientBooking = {
   end_time_utc: string;
   client_timezone: string;
   product_timezone: string;
-  status: "scheduled" | "cancelled" | "rescheduled";
+  status: "pending_approval" | "scheduled" | "cancelled" | "rescheduled" | "rejected";
   assignment_strategy: string;
   assignment_reason: string;
   public_booking_reference: string;
@@ -169,6 +169,22 @@ export type BookingNotification = {
   updated_at: string;
 };
 
+export type BookingAssignmentHistory = {
+  id: string;
+  booking_id: string;
+  organization_id: string;
+  product_id: string;
+  previous_product_id: string;
+  new_product_id: string;
+  previous_team_id: string;
+  new_team_id: string;
+  previous_member_id: string;
+  new_member_id: string;
+  changed_by: string;
+  reason: string;
+  changed_at: string;
+};
+
 export type TeamAvailability = {
   product_id: string;
   product_name: string;
@@ -180,6 +196,7 @@ export type TeamAvailability = {
   available_slots: ProductAvailableSlot[];
   bookings: ClientBooking[];
   notifications: BookingNotification[];
+  assignment_history?: BookingAssignmentHistory[];
   exceptions: AvailabilityException[];
 };
 
@@ -204,6 +221,21 @@ export type PublicLandingProduct = {
   support_end_time: string;
   appointment_duration_minutes: number;
   booking_mode: "instant" | "approval" | string;
+  widget_button_label: string;
+  widget_action_label: string;
+};
+
+export type WidgetConfig = {
+  workspace_name: string;
+  public_widget_id: string;
+  enabled: boolean;
+  button_label: string;
+  action_label: string;
+  position: "right" | "left";
+  primary_color: string;
+  booking_mode: "instant" | "approval" | string;
+  timezone: string;
+  product: PublicLandingProduct;
 };
 
 export type User = {
@@ -324,6 +356,14 @@ export type Product = {
   member_count: number;
   public_booking_token: string;
   public_booking_path: string;
+  approved_domains: string[];
+  controller_email: string;
+  support_email: string;
+  booking_mode: "instant" | "approval";
+  widget_enabled: boolean;
+  widget_button_label: string;
+  widget_action_label: string;
+  widget_position: "right" | "left";
   created_at: string;
   updated_at: string;
 };

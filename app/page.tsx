@@ -136,6 +136,7 @@ export default function LandingPage() {
   const [billing, setBilling] = useState<BillingMode>("yearly");
   const [textReminder, setTextReminder] = useState(true);
   const [emailFollowUp, setEmailFollowUp] = useState(true);
+  const landingWidgetId = process.env.NEXT_PUBLIC_LANDING_WIDGET_ID || "";
 
   return (
     <main className="home-shell">
@@ -145,7 +146,7 @@ export default function LandingPage() {
         onMenuChange={setActiveMenu}
         onMobileToggle={() => setMobileOpen((current) => !current)}
       />
-      <LandingBookNowWidget />
+      <LandingBookNowWidget singleWorkspaceMode widgetId={landingWidgetId} />
 
       <section className="home-hero" id="top">
         <div className="hero-grid-scene" aria-hidden="true" />

@@ -104,6 +104,11 @@ export default function AuthPage({ initialMode }: { initialMode: "login" | "sign
         setStep("password");
         return;
       }
+      if (mode === "login" && caught instanceof ApiError && caught.status === 404) {
+        setNotice(caught.message);
+        setError("");
+        return;
+      }
       setError(caught instanceof Error ? caught.message : "Unable to continue");
     } finally {
       setLoading(false);
