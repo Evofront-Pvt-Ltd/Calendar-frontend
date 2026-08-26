@@ -109,6 +109,13 @@ jobs:
           set +e
           ready=0
           for i in $(seq 1 40); do
+            if ! docker ps --format '{{.Names}}' | grep -qx calendar-frontend-validate; then
+              echo "::error::Frontend container exited before becoming ready"
+              docker logs calendar-frontend-validate || true
+              docker inspect calendar-frontend-validate || true
+              docker rm -f calendar-frontend-validate || true
+              exit 1
+            fi
             if curl -fsS --max-time 5 http://127.0.0.1:3000/ >/dev/null; then
               ready=1
               break
@@ -118,50 +125,24 @@ jobs:
           set -e
           if [ "$ready" != "1" ]; then
             echo "::error::Frontend container did not serve GET / on port 3000"
-            docker logs calendar-frontend-validate
-            docker rm -f calendar-frontend-validate
+            docker logs calendar-frontend-validate || true
+            docker inspect calendar-frontend-validate || true
+            docker rm -f calendar-frontend-validate || true
             exit 1
           fi
-          docker rm -f calendar-frontend-validate
-          set +e
-          ready=0
-          for i in $(seq 1 40); do
-            if curl -fsS --max-time 5 http://127.0.0.1:3000/ >/dev/null; then
-              ready=1
-              break
-            fi
-            sleep 3
-          done
-          set -e
-          if [ "$ready" != "1" ]; then
-            echo "::error::Frontend container did not serve GET / on port 3000"
-            docker logs calendar-frontend-validate
-            docker rm -f calendar-frontend-validate
-            exit 1
-          fi
+          echo "Frontend container validation passed on GET /"
           docker rm -f calendar-frontend-validate
 
-      - name: Authenticate to private registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY_HOST }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
-
-      - name: Push immutable image and record digest
-        id: image
+      - name: Verify registry secrets are configured
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
           set -euo pipefail
-          REMOTE_TAG="${REGISTRY_HOST}/${IMAGE_NAME}:${GITHUB_SHA}"
-          docker tag "${IMAGE_NAME}:${GITHUB_SHA}" "${REMOTE_TAG}"
-          docker push "${REMOTE_TAG}"
-          DIGEST_REF="$(docker inspect --format='{{index .RepoDigests 0}}' "${REMOTE_TAG}")"
-          if [ -z "${DIGEST_REF}" ]; then
-            echo "::error::Could not resolve pushed image digest"
+          if [ -z "${REGISTRY_USERNAME}" ] || [ -z "${REGISTRY_PASSWORD}" ]; then
+            echo "::error::REGISTRY_USERNAME and REGISTRY_PASSWORD must be set as GitHub Actions repository secrets before registry login."
             exit 1
           fi
-          echo "digest_ref=${DIGEST_REF}" >> "$GITHUB_OUTPUT"
-          echo "Pushed ${DIGEST_REF}"
 
       - name: Configure kubectl
         env:
@@ -186,6 +167,49 @@ jobs:
           export KUBECONFIG="$HOME/.kube/config"
           kubectl config current-context >/dev/null
           kubectl cluster-info >/dev/null
+
+      - name: Wait for registry TLS certificate
+        run: |
+          set -euo pipefail
+          export KUBECONFIG="$HOME/.kube/config"
+          ok=0
+          for i in $(seq 1 48); do
+            cert_text="$(echo | openssl s_client -servername "${REGISTRY_HOST}" -connect "${REGISTRY_HOST}:443" 2>/dev/null | openssl x509 -noout -text 2>/dev/null || true)"
+            if printf '%s' "${cert_text}" | grep -q "DNS:${REGISTRY_HOST}"; then
+              echo "Registry TLS certificate is valid for ${REGISTRY_HOST}"
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "${ok}" != "1" ]; then
+            echo "::error::Registry TLS is not valid for ${REGISTRY_HOST}. nginx is still serving a certificate for ingress.local. Push Calendar-Backend so the registry ingress and Let's Encrypt certificate can be issued, then rerun this workflow."
+            kubectl -n calendar get ingress,certificate,secret -o wide || true
+            kubectl -n calendar describe certificate calendar-registry-tls || true
+            exit 1
+          fi
+
+      - name: Authenticate to private registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY_HOST }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Push immutable image and record digest
+        id: image
+        run: |
+          set -euo pipefail
+          REMOTE_TAG="${REGISTRY_HOST}/${IMAGE_NAME}:${GITHUB_SHA}"
+          docker tag "${IMAGE_NAME}:${GITHUB_SHA}" "${REMOTE_TAG}"
+          docker push "${REMOTE_TAG}"
+          DIGEST_REF="$(docker inspect --format='{{index .RepoDigests 0}}' "${REMOTE_TAG}")"
+          if [ -z "${DIGEST_REF}" ]; then
+            echo "::error::Could not resolve pushed image digest"
+            exit 1
+          fi
+          echo "digest_ref=${DIGEST_REF}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${DIGEST_REF}"
 
       - name: Deploy to Kubernetes
         env:
