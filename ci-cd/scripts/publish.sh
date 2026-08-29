@@ -18,21 +18,7 @@ docker tag "${IMAGE_NAME}:${GITHUB_SHA}" "${REMOTE}"
 docker push "${REMOTE}"
 docker manifest inspect "${REMOTE}" >/dev/null
 
-bash ci-cd/scripts/ensure_dockerhub_pull_secret.sh calendar-frontend
 python3 ci-cd/scripts/set_deployment_image.py "${DOCKERHUB_USERNAME}/${IMAGE_NAME}" "${GITHUB_SHA}"
-
-git config user.name "Evofront CI"
-git config user.email "ci@evofront.com"
-git add k8s/overlays/staging/kustomization.yaml
-if ! git diff --staged --quiet; then
-  git commit -m "${GITHUB_SHA}"
-  git push
-fi
-
-echo ""
-echo "──────────────────────────────────────────────────────────────"
-echo "Frontend  ${FRONTEND_URL}"
-echo "API       ${NEXT_PUBLIC_API_URL}"
-echo "Health    ${NEXT_PUBLIC_API_URL}/health"
-echo "SHA       ${GITHUB_SHA}"
-echo "──────────────────────────────────────────────────────────────"
+bash ci-cd/scripts/ensure_dockerhub_pull_secret.sh calendar-frontend
+export KUBECONFIG="$HOME/.kube/config"
+kubectl apply -k k8s/overlays/staging
