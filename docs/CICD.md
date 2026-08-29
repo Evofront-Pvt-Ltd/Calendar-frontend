@@ -1,44 +1,43 @@
 # Calendar Frontend CI/CD
 
-This repository deploys only the Calendar frontend. Backend, MongoDB, and the private registry live in `Calendar-backend`.
+Industrial GitOps deployment aligned with the Surveys pattern:
+
+- **CI:** GitHub Actions validates, builds, and pushes Docker images to Docker Hub
+- **CD:** Argo CD syncs `k8s/overlays/staging` from the `develop` branch
+- **Traceability:** every release is pinned to a Git commit SHA in Kustomize
+
+See [DEPLOY.md](../DEPLOY.md) for bootstrap, secrets, Argo CD registration, and rollback.
+
+## Workflow
+
+| Job | Trigger | Actions |
+| --- | --- | --- |
+| `ci` | PR and push to `develop` | typecheck, build, docker build, container smoke test |
+| `deploy` | push to `develop` only | push image to Docker Hub, commit manifest image tag |
+
+## GitHub secrets
+
+| Secret | Required |
+| --- | --- |
+| `DOCKERHUB_USERNAME` | Yes |
+| `DOCKERHUB_PASSWORD` | Yes |
+
+## Kubernetes layout
+
+```text
+k8s/
+  base/                 # Namespace, frontend deployment, service, ingress
+  overlays/staging/     # Image tag updated by CI
+  argocd/               # Argo CD Application manifest
+```
 
 ## Hostnames
-
-These hostnames follow the existing Pods Civo ingress IP `212.2.249.45` and [nip.io](https://nip.io/) resolution used by `Evofront-Pvt-Ltd/Pods-Frontend`.
 
 | Surface | URL |
 | --- | --- |
 | Frontend | `https://calendar.212.2.249.45.nip.io` |
 | Backend API | `https://calendar-api.212.2.249.45.nip.io` |
-| Private registry | `https://calendar-registry.212.2.249.45.nip.io` |
-
-If the Civo load-balancer IP changes, update `k8s/ingress.yaml` and `.github/workflows/calendar-frontend-ci-cd.yml`.
-
-## GitHub secrets
-
-Create these repository secrets on `Evofront-Pvt-Ltd/Calendar-frontend`:
-
-| Secret | Required | Purpose |
-| --- | --- | --- |
-| `KUBECONFIG` | Yes | Existing Pods Civo kubeconfig, raw YAML or base64 YAML |
-| `REGISTRY_USERNAME` | Yes | htpasswd username for the in-cluster registry |
-| `REGISTRY_PASSWORD` | Yes | htpasswd password for the in-cluster registry |
-
-`GITHUB_TOKEN` is sufficient for checkout. No extra GitHub PAT is required.
 
 ## Branch
 
-Push CI/CD changes to `develop`. Do not change the default branch.
-
-## Bootstrap order
-
-1. Apply the private registry from `Calendar-backend/k8s/registry`.
-2. Confirm `https://calendar-registry.212.2.249.45.nip.io/v2/` returns HTTP 401 with a valid Let's Encrypt certificate.
-3. Store the GitHub secrets above.
-4. Push this repository's `develop` branch.
-
-## Obtaining kubeconfig
-
-In the Civo dashboard, open the existing Pods Kubernetes cluster and download kubeconfig. Store the file contents as the `KUBECONFIG` GitHub Actions secret. Do not commit the file. Do not print it.
-
-Recommended later hardening: create a kubeconfig for the `calendar-cicd` ServiceAccount in `k8s/rbac.yaml` instead of using a cluster-admin kubeconfig.
+Push CI/CD changes to `develop`.

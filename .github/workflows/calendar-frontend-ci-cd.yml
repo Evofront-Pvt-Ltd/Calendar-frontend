@@ -17,6 +17,26 @@ on:
       - "next-env.d.ts"
       - "Dockerfile"
       - ".dockerignore"
+      - "ci-cd/**"
+      - "k8s/**"
+      - ".github/workflows/calendar-frontend-ci-cd.yml"
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - "app/**"
+      - "components/**"
+      - "lib/**"
+      - "public/**"
+      - "types/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "next.config.ts"
+      - "next-env.d.ts"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "ci-cd/**"
       - "k8s/**"
       - ".github/workflows/calendar-frontend-ci-cd.yml"
   workflow_dispatch:
@@ -30,16 +50,14 @@ concurrency:
 
 env:
   NODE_VERSION: "22"
-  REGISTRY_HOST: calendar-registry.212.2.249.45.nip.io
   IMAGE_NAME: calendar-frontend
-  NAMESPACE: calendar-frontend
   FRONTEND_URL: https://calendar.212.2.249.45.nip.io
   NEXT_PUBLIC_API_URL: https://calendar-api.212.2.249.45.nip.io
   NEXT_PUBLIC_ORGANIZATION_EMAIL_DOMAIN: evofront.com
   NEXT_TELEMETRY_DISABLED: "1"
 
 jobs:
-  build-and-deploy:
+  ci:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -133,142 +151,75 @@ jobs:
           echo "Frontend container validation passed on GET /"
           docker rm -f calendar-frontend-validate
 
-      - name: Verify registry secrets are configured
-        env:
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [ -z "${REGISTRY_USERNAME}" ] || [ -z "${REGISTRY_PASSWORD}" ]; then
-            echo "::error::REGISTRY_USERNAME and REGISTRY_PASSWORD must be set as GitHub Actions repository secrets before registry login."
-            exit 1
-          fi
-
-      - name: Configure kubectl
-        env:
-          KUBE_CONFIG_DATA: ${{ secrets.KUBECONFIG }}
-        run: |
-          set -euo pipefail
-          if [ -z "${KUBE_CONFIG_DATA}" ]; then
-            echo "::error::KUBECONFIG secret is required"
-            exit 1
-          fi
-          mkdir -p "$HOME/.kube"
-          if printf '%s' "${KUBE_CONFIG_DATA}" | grep -qE '^apiVersion:'; then
-            printf '%s' "${KUBE_CONFIG_DATA}" > "$HOME/.kube/config"
-          else
-            printf '%s' "${KUBE_CONFIG_DATA}" | base64 -d > "$HOME/.kube/config"
-            if ! grep -qE '^apiVersion:' "$HOME/.kube/config"; then
-              echo "::error::KUBECONFIG secret must be raw kubeconfig YAML or base64 kubeconfig YAML"
-              exit 1
-            fi
-          fi
-          chmod 600 "$HOME/.kube/config"
-          export KUBECONFIG="$HOME/.kube/config"
-          kubectl config current-context >/dev/null
-          kubectl cluster-info >/dev/null
-
-      - name: Wait for registry TLS certificate
-        run: |
-          set -euo pipefail
-          export KUBECONFIG="$HOME/.kube/config"
-          ok=0
-          for i in $(seq 1 48); do
-            cert_text="$(echo | openssl s_client -servername "${REGISTRY_HOST}" -connect "${REGISTRY_HOST}:443" 2>/dev/null | openssl x509 -noout -text 2>/dev/null || true)"
-            if printf '%s' "${cert_text}" | grep -q "DNS:${REGISTRY_HOST}"; then
-              echo "Registry TLS certificate is valid for ${REGISTRY_HOST}"
-              ok=1
-              break
-            fi
-            sleep 5
-          done
-          if [ "${ok}" != "1" ]; then
-            echo "::error::Registry TLS is not valid for ${REGISTRY_HOST}. nginx is still serving a certificate for ingress.local. Push Calendar-Backend so the registry ingress and Let's Encrypt certificate can be issued, then rerun this workflow."
-            kubectl -n calendar get ingress,certificate,secret -o wide || true
-            kubectl -n calendar describe certificate calendar-registry-tls || true
-            exit 1
-          fi
-
-      - name: Authenticate to private registry
-        uses: docker/login-action@v4
+  deploy:
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          registry: ${{ env.REGISTRY_HOST }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push immutable image and record digest
-        id: image
+      - name: Verify Docker Hub secrets
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
         run: |
           set -euo pipefail
-          REMOTE_TAG="${REGISTRY_HOST}/${IMAGE_NAME}:${GITHUB_SHA}"
+          if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_PASSWORD}" ]; then
+            echo "::error::DOCKERHUB_USERNAME and DOCKERHUB_PASSWORD must be configured as repository secrets."
+            exit 1
+          fi
+
+      - name: Build container image
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg "NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}" \
+            --build-arg "NEXT_PUBLIC_ORGANIZATION_EMAIL_DOMAIN=${NEXT_PUBLIC_ORGANIZATION_EMAIL_DOMAIN}" \
+            --build-arg "NEXT_PUBLIC_LANDING_WIDGET_ID=" \
+            -t "${IMAGE_NAME}:${GITHUB_SHA}" \
+            .
+
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Push immutable image
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+          REMOTE_TAG="${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${GITHUB_SHA}"
           docker tag "${IMAGE_NAME}:${GITHUB_SHA}" "${REMOTE_TAG}"
           docker push "${REMOTE_TAG}"
-          DIGEST_REF="$(docker inspect --format='{{index .RepoDigests 0}}' "${REMOTE_TAG}")"
-          if [ -z "${DIGEST_REF}" ]; then
-            echo "::error::Could not resolve pushed image digest"
-            exit 1
-          fi
-          echo "digest_ref=${DIGEST_REF}" >> "$GITHUB_OUTPUT"
-          echo "Pushed ${DIGEST_REF}"
+          echo "Pushed ${REMOTE_TAG}"
 
-      - name: Deploy to Kubernetes
+      - name: Update staging manifest image
         env:
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           set -euo pipefail
-          export KUBECONFIG="$HOME/.kube/config"
-          DIGEST_REF="${{ steps.image.outputs.digest_ref }}"
-          kubectl apply -f k8s/namespace.yaml
-          kubectl apply -f k8s/rbac.yaml
-          kubectl apply -f k8s/configmap.yaml
-          kubectl apply -f k8s/service.yaml
-          kubectl apply -f k8s/ingress.yaml
-          kubectl -n "${NAMESPACE}" create secret docker-registry calendar-registry-pull \
-            --docker-server="${REGISTRY_HOST}" \
-            --docker-username="${REGISTRY_USERNAME}" \
-            --docker-password="${REGISTRY_PASSWORD}" \
-            --dry-run=client -o yaml | kubectl apply -f -
-          sed "s|image: REGISTRY_IMAGE_REF|image: ${DIGEST_REF}|" k8s/deployment.yaml | kubectl apply -f -
+          python3 ci-cd/scripts/set_deployment_image.py \
+            "${DOCKERHUB_USERNAME}/${IMAGE_NAME}" \
+            "${GITHUB_SHA}"
 
-      - name: Wait for rollout
+      - name: Commit and push GitOps manifest
         run: |
           set -euo pipefail
-          export KUBECONFIG="$HOME/.kube/config"
-          if ! kubectl -n "${NAMESPACE}" rollout status deployment/calendar-frontend --timeout=300s; then
-            echo "::error::Frontend rollout failed"
-            kubectl -n "${NAMESPACE}" get deploy,rs,pods,svc,ingress -o wide
-            kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 80
-            kubectl -n "${NAMESPACE}" logs -l app=calendar-frontend --tail=150
-            exit 1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add k8s/overlays/staging/kustomization.yaml
+          if git diff --staged --quiet; then
+            echo "Manifest image tag already matches ${GITHUB_SHA}"
+            exit 0
           fi
-          READY="$(kubectl -n "${NAMESPACE}" get deploy calendar-frontend -o jsonpath='{.status.readyReplicas}')"
-          DESIRED="$(kubectl -n "${NAMESPACE}" get deploy calendar-frontend -o jsonpath='{.spec.replicas}')"
-          if [ "${READY}" != "${DESIRED}" ]; then
-            echo "::error::Ready replica count ${READY} does not match desired ${DESIRED}"
-            exit 1
-          fi
-
-      - name: Verify HTTPS endpoint
-        run: |
-          set -euo pipefail
-          export KUBECONFIG="$HOME/.kube/config"
-          kubectl -n "${NAMESPACE}" get ingress calendar-frontend
-          set +e
-          ok=0
-          code="000"
-          for i in $(seq 1 36); do
-            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "${FRONTEND_URL}/")"
-            if [ "${code}" = "200" ]; then
-              ok=1
-              break
-            fi
-            sleep 5
-          done
-          set -e
-          if [ "${ok}" != "1" ]; then
-            echo "::error::HTTPS GET ${FRONTEND_URL}/ did not return 200 (last=${code})"
-            kubectl -n "${NAMESPACE}" get ingress,secret,pods -o wide
-            exit 1
-          fi
-          echo "Frontend HTTPS check passed: ${FRONTEND_URL}/ -> 200"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          git commit -m "deploy: set frontend image to ${SHORT_SHA}"
+          git push
