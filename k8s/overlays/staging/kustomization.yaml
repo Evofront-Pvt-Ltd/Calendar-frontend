@@ -7,4 +7,4 @@ resources:
 images:
   - name: calendar-frontend
     newName: mohankatari/calendar-frontend
-    newTag: 44d27bc7cd51dc44b3ffbccce0082631113983ab
+    newTag: e165721fa4ef9c8b2f85101403f41dc6fa2825ea
