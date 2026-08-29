@@ -56,14 +56,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
       - run: bash ci-cd/scripts/publish.sh
-      - run: |
-          echo "──────────────────────────────────────────────────────────────"
-          echo "Frontend  ${FRONTEND_URL}  |  API  ${NEXT_PUBLIC_API_URL}  |  Health  ${NEXT_PUBLIC_API_URL}/health  |  SHA  ${GITHUB_SHA}"
-          echo "──────────────────────────────────────────────────────────────"
-        env:
-          FRONTEND_URL: ${{ env.FRONTEND_URL }}
-          NEXT_PUBLIC_API_URL: ${{ env.NEXT_PUBLIC_API_URL }}
-          GITHUB_SHA: ${{ github.sha }}
+
+  urls:
+    needs: deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
       - run: |
           echo "──────────────────────────────────────────────────────────────"
           echo "Frontend  ${FRONTEND_URL}  |  API  ${NEXT_PUBLIC_API_URL}  |  Health  ${NEXT_PUBLIC_API_URL}/health  |  SHA  ${GITHUB_SHA}"
