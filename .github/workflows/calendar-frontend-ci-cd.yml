@@ -231,3 +231,18 @@ jobs:
           SHORT_SHA="${GITHUB_SHA::7}"
           git commit -m "deploy: set frontend image to ${SHORT_SHA}"
           git push
+
+      - name: Print application URLs
+        run: |
+          set -euo pipefail
+          echo ""
+          echo "=============================================="
+          echo "Calendar Staging Application URLs"
+          echo "=============================================="
+          echo "Frontend:  ${FRONTEND_URL}"
+          echo "Backend:   ${NEXT_PUBLIC_API_URL}"
+          echo "Health:    ${NEXT_PUBLIC_API_URL}/health"
+          echo "Argo CD:   https://argocd.212.2.249.45.nip.io"
+          echo "Image:     ${GITHUB_SHA}"
+          echo "=============================================="
+          echo "::notice title=Calendar URLs::Frontend ${FRONTEND_URL} | API ${NEXT_PUBLIC_API_URL} | Health ${NEXT_PUBLIC_API_URL}/health"
