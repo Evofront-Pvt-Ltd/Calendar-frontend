@@ -1,12 +1,21 @@
 name: Calendar Frontend CI/CD
 
 on:
-  push: { branches: [develop], paths: [app/**, components/**, lib/**, public/**, types/**, package.json, package-lock.json, tsconfig.json, next.config.ts, next-env.d.ts, Dockerfile, .dockerignore, ci-cd/**, k8s/**, .github/workflows/calendar-frontend-ci-cd.yml] }
-  pull_request: { branches: [develop], paths: [app/**, components/**, lib/**, public/**, types/**, package.json, package-lock.json, tsconfig.json, next.config.ts, next-env.d.ts, Dockerfile, .dockerignore, ci-cd/**, k8s/**, .github/workflows/calendar-frontend-ci-cd.yml] }
+  push:
+    branches: [develop]
+    paths: &paths ["app/**", "components/**", "lib/**", "public/**", "types/**", "package.json", "package-lock.json", "tsconfig.json", "next.config.ts", "next-env.d.ts", "Dockerfile", ".dockerignore", "ci-cd/**", "k8s/**", ".github/workflows/calendar-frontend-ci-cd.yml"]
+  pull_request:
+    branches: [develop]
+    paths: *paths
   workflow_dispatch:
 
-permissions: { contents: read }
-concurrency: { group: calendar-frontend-${{ github.ref }}, cancel-in-progress: false }
+permissions:
+  contents: read
+
+concurrency:
+  group: calendar-frontend-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   NODE_VERSION: "22"
   IMAGE_NAME: calendar-frontend
@@ -23,7 +32,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
-        with: { node-version: ${{ env.NODE_VERSION }}, cache: npm }
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
       - run: bash ci-cd/scripts/ci.sh
 
   deploy:
@@ -31,7 +42,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions: { contents: write }
+    permissions:
+      contents: write
     env:
       GITHUB_SHA: ${{ github.sha }}
       KUBE_CONFIG_DATA: ${{ secrets.KUBECONFIG }}
