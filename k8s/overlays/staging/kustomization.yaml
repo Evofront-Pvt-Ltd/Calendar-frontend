@@ -6,5 +6,5 @@ resources:
 
 images:
   - name: calendar-frontend
-    newName: evofront/calendar-frontend
-    newTag: bootstrap
+    newName: mohankatari/calendar-frontend
+    newTag: bfe96a3158a4be097fdfb6176164a4fec83ec190
