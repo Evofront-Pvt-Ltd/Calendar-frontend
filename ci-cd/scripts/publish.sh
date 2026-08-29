@@ -22,3 +22,4 @@ python3 ci-cd/scripts/set_deployment_image.py "${DOCKERHUB_USERNAME}/${IMAGE_NAM
 bash ci-cd/scripts/ensure_dockerhub_pull_secret.sh calendar-frontend
 export KUBECONFIG="$HOME/.kube/config"
 kubectl apply -k k8s/overlays/staging
+kubectl -n calendar-frontend rollout status deployment/calendar-frontend --timeout=420s

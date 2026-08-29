@@ -1,5 +1,4 @@
 name: Calendar Frontend CI/CD
-
 on:
   push:
     branches: [develop]
@@ -8,21 +7,19 @@ on:
     branches: [develop]
     paths: *paths
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: calendar-frontend-${{ github.ref }}
   cancel-in-progress: false
-
 env:
   NODE_VERSION: "22"
   IMAGE_NAME: calendar-frontend
   FRONTEND_URL: https://calendar.212.2.249.45.nip.io
   NEXT_PUBLIC_API_URL: https://calendar-api.212.2.249.45.nip.io
   NEXT_PUBLIC_ORGANIZATION_EMAIL_DOMAIN: evofront.com
-
+  DOCKER_BUILD_SUMMARY: "false"
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
 jobs:
   ci:
     runs-on: ubuntu-latest
@@ -36,14 +33,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: bash ci-cd/scripts/ci.sh
-
   deploy:
     needs: ci
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: read
     env:
       GITHUB_SHA: ${{ github.sha }}
       KUBE_CONFIG_DATA: ${{ secrets.KUBECONFIG }}
@@ -56,19 +50,26 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
       - run: bash ci-cd/scripts/publish.sh
-
   urls:
     needs: deploy
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 5
     steps:
-      - name: Application URLs
+      - name: Print deployment URLs
         run: |
-          echo "──────────────────────────────────────────────────────────────"
-          echo "Frontend  ${FRONTEND_URL}  |  API  ${NEXT_PUBLIC_API_URL}  |  Health  ${NEXT_PUBLIC_API_URL}/health  |  SHA  ${GITHUB_SHA}"
-          echo "──────────────────────────────────────────────────────────────"
-        env:
-          FRONTEND_URL: ${{ env.FRONTEND_URL }}
-          NEXT_PUBLIC_API_URL: ${{ env.NEXT_PUBLIC_API_URL }}
-          GITHUB_SHA: ${{ github.sha }}
+          INGRESS_IP="$(printf '%s\n' "${FRONTEND_URL#https://}" | sed -E 's/^[^.]+\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\.nip\.io.*/\1/')"
+          echo "========================================"
+          echo "DEPLOYMENT COMPLETED"
+          echo "========================================"
+          echo ""
+          echo "Application URL:"
+          echo "${FRONTEND_URL}"
+          echo ""
+          echo "API URL:"
+          echo "${NEXT_PUBLIC_API_URL}"
+          echo ""
+          echo "Ingress IP:"
+          echo "${INGRESS_IP}"
+          echo ""
+          echo "========================================"
