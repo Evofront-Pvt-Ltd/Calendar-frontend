@@ -47,6 +47,19 @@ type RegistrationDelivery = {
   message: string;
 };
 
+type ForgotPasswordResult = {
+  success: boolean;
+  expires_in_minutes: number;
+  message: string;
+};
+
+type PasswordResetCheck = {
+  valid: boolean;
+  email: string;
+  expires_in_minutes: number;
+  message: string;
+};
+
 type PublicBookingPayload = {
   slot_key: string;
   client_name: string;
@@ -212,6 +225,21 @@ export const api = {
     return request<{ success: boolean; message: string }>("/api/auth/logout", {
       method: "POST",
       token,
+      body: JSON.stringify(payload)
+    });
+  },
+  forgotPassword(payload: { email: string }) {
+    return request<ForgotPasswordResult>("/api/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  checkResetToken(token: string) {
+    return request<PasswordResetCheck>(`/api/auth/reset-password/${encodeURIComponent(token)}`);
+  },
+  resetPassword(payload: { token: string; password: string }) {
+    return request<{ success: boolean; message: string }>("/api/auth/reset-password", {
+      method: "POST",
       body: JSON.stringify(payload)
     });
   },

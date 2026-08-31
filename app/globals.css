@@ -6278,6 +6278,43 @@ Google OAuth button mark is parked for future reactivation.
   margin-top: 8px;
 }
 
+.forgot-password-link {
+  justify-self: end;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #006bff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.forgot-password-link:hover {
+  text-decoration: underline;
+}
+
+.reset-password-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.reset-password-form input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid #c9d7e8;
+  border-radius: 8px;
+  color: #002a5c;
+  font-size: 0.98rem;
+}
+
+.reset-password-form input:focus-visible {
+  border-color: #006bff;
+  outline: 2px solid rgba(0, 107, 255, 0.25);
+  outline-offset: 1px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .home-shell *,
   .home-shell *::before,

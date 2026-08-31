@@ -16,7 +16,10 @@ function normalizeTimezone(timezone: string) {
 export default function AuthPage({ initialMode }: { initialMode: "login" | "signup" }) {
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "signup">(initialMode);
-  const [step, setStep] = useState<"email" | "password" | "verify">(initialMode === "login" ? "email" : "password");
+  const [step, setStep] = useState<"email" | "password" | "verify" | "forgot">(
+    initialMode === "login" ? "email" : "password"
+  );
+  const [forgotSent, setForgotSent] = useState(false);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -78,7 +81,42 @@ export default function AuthPage({ initialMode }: { initialMode: "login" | "sign
       verifySignup();
       return;
     }
+    if (step === "forgot") {
+      sendResetLink();
+      return;
+    }
     submit();
+  }
+
+  async function sendResetLink() {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await api.forgotPassword({ email: form.email });
+      setNotice(response.message);
+      setForgotSent(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to send the reset link");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function openForgotPassword() {
+    setStep("forgot");
+    setForgotSent(false);
+    setError("");
+    setNotice("");
+    setRegisteredEmailMessage("");
+    setForm((current) => ({ ...current, password: "" }));
+  }
+
+  function backToLoginFromForgot() {
+    setStep(form.email ? "password" : "email");
+    setForgotSent(false);
+    setError("");
+    setNotice("");
   }
 
   async function submit() {
@@ -197,6 +235,7 @@ export default function AuthPage({ initialMode }: { initialMode: "login" | "sign
     setOtp("");
     setShowPassword(false);
     setResendSeconds(0);
+    setForgotSent(false);
     setError("");
     setNotice("");
     setRegisteredEmailMessage("");
@@ -244,17 +283,38 @@ export default function AuthPage({ initialMode }: { initialMode: "login" | "sign
       </header>
 
       <section className="login-stage">
-        <h1>{mode === "login" ? "Log in to your account" : "Create your account"}</h1>
+        <h1>
+          {step === "forgot"
+            ? "Reset your password"
+            : mode === "login"
+              ? "Log in to your account"
+              : "Create your account"}
+        </h1>
 
         <form className="login-card" onSubmit={continueWithEmail} autoComplete="off">
-          <div className="auth-switch" aria-label="Authentication mode">
-            <button className={mode === "login" ? "active" : ""} onClick={() => switchMode("login")} type="button">
-              Log in
+          {step !== "forgot" && (
+            <div className="auth-switch" aria-label="Authentication mode">
+              <button className={mode === "login" ? "active" : ""} onClick={() => switchMode("login")} type="button">
+                Log in
+              </button>
+              <button className={mode === "signup" ? "active" : ""} onClick={() => switchMode("signup")} type="button">
+                Sign up
+              </button>
+            </div>
+          )}
+
+          {step === "forgot" && (
+            <button className="back-email" onClick={backToLoginFromForgot} type="button">
+              <ChevronLeft size={17} />
+              Back to log in
             </button>
-            <button className={mode === "signup" ? "active" : ""} onClick={() => switchMode("signup")} type="button">
-              Sign up
-            </button>
-          </div>
+          )}
+
+          {step === "forgot" && !forgotSent && (
+            <p className="field-note">
+              Enter the email you signed up with and we will send you a link to choose a new password.
+            </p>
+          )}
 
           {mode === "signup" && step !== "verify" && (
             <input
@@ -283,7 +343,7 @@ export default function AuthPage({ initialMode }: { initialMode: "login" | "sign
             </button>
           )}
 
-          {(mode === "signup" && step !== "verify") || step === "email" ? (
+          {(mode === "signup" && step !== "verify") || step === "email" || (step === "forgot" && !forgotSent) ? (
             <input
               aria-label="Email"
               autoComplete="off"
@@ -325,6 +385,12 @@ export default function AuthPage({ initialMode }: { initialMode: "login" | "sign
               </button>
             </div>
           ) : null}
+
+          {mode === "login" && step === "password" && (
+            <button className="forgot-password-link" onClick={openForgotPassword} type="button">
+              Forgot password?
+            </button>
+          )}
 
           {mode === "signup" && step === "verify" && (
             <input
@@ -376,16 +442,24 @@ export default function AuthPage({ initialMode }: { initialMode: "login" | "sign
           {error && <p className="form-error">{error}</p>}
           {notice && <p className="form-notice">{notice}</p>}
 
-          {!registeredEmailMessage && (
+          {!registeredEmailMessage && !forgotSent && (
             <button className="blue-action full" disabled={loading} type="submit">
               {loading ? <Loader2 className="spin" size={18} /> : null}
-              {mode === "login" && step === "email"
-                ? "Continue"
-                : mode === "login"
-                  ? "Log in"
-                  : step === "verify"
-                    ? "Verify and create account"
-                    : "Create account"}
+              {step === "forgot"
+                ? "Send reset link"
+                : mode === "login" && step === "email"
+                  ? "Continue"
+                  : mode === "login"
+                    ? "Log in"
+                    : step === "verify"
+                      ? "Verify and create account"
+                      : "Create account"}
+            </button>
+          )}
+
+          {forgotSent && (
+            <button className="secondary-auth-action" onClick={backToLoginFromForgot} type="button">
+              Back to log in
             </button>
           )}
 
