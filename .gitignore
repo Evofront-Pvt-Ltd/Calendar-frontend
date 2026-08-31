@@ -6,3 +6,9 @@ out/
 .env.local
 *.tsbuildinfo
 npm-debug.log*
+
+# Cluster credentials must never be committed
+kubeconfig
+kubeconfig*
+*kubeconfig*
+*.kubeconfig

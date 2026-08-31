@@ -49,7 +49,7 @@ export default function ClientAppointmentsPanel({
       <div className="panel-heading appointments-heading">
         <div>
           <h2 id="client-appointments-title">Client appointments</h2>
-          <p>Website booking requests, assignment status, notifications, calendar sync, and approval history.</p>
+          <p>Website booking requests for this workspace. Pending approvals stay visible even if you change the availability date. Approve with this product’s team only.</p>
         </div>
         <div className="appointment-counts" aria-label="Client appointment summary">
           <span>{pendingCount} pending</span>
@@ -142,6 +142,7 @@ function AppointmentCard({
 
       <div className="appointment-detail-grid">
         <Detail label="When" value={`${formatDateTime(booking.start_time_utc)} - ${formatTime(booking.end_time_utc)}`} />
+        <Detail label="Website origin" value={booking.source_domain || "Not captured"} />
         <Detail label="Client email" value={booking.client_email} />
         <Detail label="Company" value={booking.client_company || "Not provided"} />
         <Detail label="Reference" value={booking.product_reference_number || booking.public_booking_reference} />

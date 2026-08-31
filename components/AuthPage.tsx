@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ChevronLeft, Eye, EyeOff, Loader2 } from "lucide-react";
 import { ApiError, api } from "@/lib/api";
+import { hasSession, saveSession } from "@/lib/session";
 import type { AuthResponse } from "@/types";
 
 const fallbackTimezone = "Asia/Kolkata";
@@ -46,7 +47,7 @@ export default function AuthPage({ initialMode }: { initialMode: "login" | "sign
         current.timezone === "" ? { ...current, timezone: normalizeTimezone(browserTimezone) } : current
       );
     }
-    if (localStorage.getItem("calendar_token")) {
+    if (hasSession()) {
       router.replace("/dashboard");
     }
   }, [router]);
@@ -61,9 +62,8 @@ export default function AuthPage({ initialMode }: { initialMode: "login" | "sign
     return () => window.clearInterval(timer);
   }, [resendSeconds, step]);
 
-  function saveSession(response: AuthResponse) {
-    localStorage.setItem("calendar_token", response.access_token);
-    localStorage.setItem("calendar_user", JSON.stringify(response.user));
+  function startSession(response: AuthResponse) {
+    saveSession(response);
     router.push("/dashboard");
   }
 
@@ -96,7 +96,7 @@ export default function AuthPage({ initialMode }: { initialMode: "login" | "sign
       if (!response) {
         return;
       }
-      saveSession(response);
+      startSession(response);
     } catch (caught) {
       if (mode === "signup" && caught instanceof ApiError && caught.code === "EMAIL_ALREADY_REGISTERED") {
         setRegisteredEmailMessage(caught.message);
@@ -135,7 +135,7 @@ export default function AuthPage({ initialMode }: { initialMode: "login" | "sign
         email: form.email,
         otp
       });
-      saveSession(response);
+      startSession(response);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to verify OTP");
     } finally {

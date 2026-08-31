@@ -291,6 +291,10 @@ function MetricStrip({ stats }: { stats: DashboardStats }) {
         <strong>{stats.upcoming_bookings}</strong>
       </div>
       <div>
+        <span>Pending requests</span>
+        <strong>{stats.pending_client_bookings || 0}</strong>
+      </div>
+      <div>
         <span>Team members</span>
         <strong>{stats.team_members || 0}</strong>
       </div>

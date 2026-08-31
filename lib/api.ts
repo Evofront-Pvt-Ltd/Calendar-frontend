@@ -2,6 +2,7 @@ import type {
   AuthResponse,
   Availability,
   Booking,
+  BookingClaimAlert,
   ClientBooking,
   Contact,
   DashboardStats,
@@ -12,6 +13,7 @@ import type {
   Product,
   ProductAvailabilityPolicy,
   ProductAvailableSlot,
+  ProductController,
   ProductMeeting,
   ProductMember,
   PublicLandingProduct,
@@ -22,11 +24,19 @@ import type {
   WidgetConfig,
   User
 } from "@/types";
+import { clearSession, getAccessToken, getRefreshToken, saveRenewedTokens } from "@/lib/session";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8001";
 
 type RequestOptions = RequestInit & {
   token?: string | null;
+};
+
+type RefreshedSession = {
+  access_token: string;
+  refresh_token: string;
+  token_type: "bearer";
+  expires_in: number;
 };
 
 type RegistrationDelivery = {
@@ -65,14 +75,14 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function execute<T>(path: string, options: RequestOptions, token?: string | null): Promise<T> {
   const headers = new Headers(options.headers);
   const hasBody = typeof options.body !== "undefined";
   if (hasBody && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  if (options.token) {
-    headers.set("Authorization", `Bearer ${options.token}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
   }
 
   const response = await fetch(`${API_URL}${path}`, {
@@ -98,6 +108,61 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     throw new ApiError(message, response.status, detail?.code, detail?.nextAction);
   }
   return data as T;
+}
+
+// One refresh at a time, so a burst of parallel 401s cannot rotate the refresh token repeatedly.
+let renewal: Promise<string> | null = null;
+
+async function renewAccessToken(): Promise<string> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    return "";
+  }
+  if (!renewal) {
+    renewal = (async () => {
+      try {
+        const renewed = await execute<RefreshedSession>("/api/auth/refresh", {
+          method: "POST",
+          body: JSON.stringify({ refresh_token: refreshToken })
+        });
+        saveRenewedTokens(renewed.access_token, renewed.refresh_token);
+        return renewed.access_token;
+      } catch {
+        clearSession();
+        return "";
+      } finally {
+        renewal = null;
+      }
+    })();
+  }
+  return renewal;
+}
+
+// Callers hold the token in component state, which goes stale the moment a background
+// renewal rotates it, so the stored token always wins for the same session.
+function freshestToken(token?: string | null): string | null | undefined {
+  if (!token) {
+    return token;
+  }
+  return getAccessToken() || token;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  try {
+    return await execute<T>(path, options, freshestToken(options.token));
+  } catch (caught) {
+    const isExpiredSession = caught instanceof ApiError && caught.status === 401 && Boolean(options.token);
+    if (!isExpiredSession) {
+      throw caught;
+    }
+    // A single retry only: renewAccessToken never recurses through request().
+    const token = await renewAccessToken();
+    if (!token) {
+      clearSession();
+      throw caught;
+    }
+    return execute<T>(path, options, token);
+  }
 }
 
 function withProduct(path: string, productId?: string) {
@@ -143,6 +208,13 @@ export const api = {
   // googleConfig() {
   //   return request<{ enabled: boolean; redirect_uri: string }>("/api/auth/google/config");
   // },
+  logout(token: string, payload: { refresh_token?: string; all_sessions?: boolean } = {}) {
+    return request<{ success: boolean; message: string }>("/api/auth/logout", {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload)
+    });
+  },
   me(token: string) {
     return request<User>("/api/auth/me", { token });
   },
@@ -242,10 +314,78 @@ export const api = {
       body: JSON.stringify(payload)
     });
   },
+  resendMemberVerification(token: string, productId: string, membershipId: string) {
+    return request<ProductMember>(`/api/products/${productId}/members/${membershipId}/resend-verification`, {
+      method: "POST",
+      token
+    });
+  },
+  verifyMemberPublic(token: string) {
+    return request<{ status: string; email: string; product_name: string; has_login: boolean; message: string }>(
+      `/api/public/member-verify/${encodeURIComponent(token)}`
+    );
+  },
   removeProductMember(token: string, productId: string, membershipId: string) {
     return request<void>(`/api/products/${productId}/members/${membershipId}`, {
       method: "DELETE",
       token
+    });
+  },
+  productControllers(token: string, productId: string) {
+    return request<ProductController[]>(`/api/products/${productId}/controllers`, { token });
+  },
+  addProductController(token: string, productId: string, email: string) {
+    return request<ProductController>(`/api/products/${productId}/controllers`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ email })
+    });
+  },
+  resendProductController(token: string, productId: string, controllerId: string) {
+    return request<ProductController>(`/api/products/${productId}/controllers/${controllerId}/resend`, {
+      method: "POST",
+      token
+    });
+  },
+  removeProductController(token: string, productId: string, controllerId: string) {
+    return request<void>(`/api/products/${productId}/controllers/${controllerId}`, {
+      method: "DELETE",
+      token
+    });
+  },
+  claimAlerts(token: string, productId: string) {
+    return request<BookingClaimAlert[]>(`/api/products/${productId}/claim-alerts`, { token });
+  },
+  claimClientBooking(token: string, productId: string, bookingId: string) {
+    return request<ClientBooking>(`/api/products/${productId}/bookings/${bookingId}/claim`, {
+      method: "POST",
+      token
+    });
+  },
+  verifyControllerPublic(token: string) {
+    return request<{ status: string; email: string; product_id: string; message: string }>(
+      `/api/public/controller-verify/${encodeURIComponent(token)}`
+    );
+  },
+  bookingClaimPreview(token: string) {
+    return request<{
+      token: string;
+      status: string;
+      booking_status: string;
+      product_name: string;
+      client_name: string;
+      issue_title: string;
+      issue_category: string;
+      priority: string;
+      start_time: string | null;
+      end_time: string | null;
+      timezone: string;
+      can_accept: boolean;
+    }>(`/api/public/booking-claim/${encodeURIComponent(token)}`);
+  },
+  acceptBookingClaimPublic(token: string) {
+    return request<ClientBooking>(`/api/public/booking-claim/${encodeURIComponent(token)}`, {
+      method: "POST"
     });
   },
   productMeetings(token: string, productId: string) {

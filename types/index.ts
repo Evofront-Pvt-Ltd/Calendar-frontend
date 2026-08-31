@@ -120,6 +120,9 @@ export type ClientBooking = {
   assignment_reason: string;
   public_booking_reference: string;
   confirmation_link: string;
+  source_domain?: string;
+  widget_id?: string;
+  booking_mode?: string;
   google_meet_url: string;
   google_event_url: string;
   google_sync_status: string;
@@ -258,7 +261,9 @@ export type User = {
 
 export type AuthResponse = {
   access_token: string;
+  refresh_token: string;
   token_type: "bearer";
+  expires_in: number;
   user: User;
 };
 
@@ -323,6 +328,7 @@ export type DashboardStats = {
   team_members?: number;
   scheduled_team_meetings?: number;
   pending_invitations?: number;
+  pending_client_bookings?: number;
 };
 
 export type Contact = {
@@ -368,6 +374,38 @@ export type Product = {
   updated_at: string;
 };
 
+export type ProductController = {
+  id: string;
+  product_id: string;
+  email: string;
+  status: "pending" | "verified" | "expired" | "revoked";
+  added_by: string;
+  verified_at: string | null;
+  verification_expires_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type BookingClaimAlert = {
+  id: string;
+  product_id: string;
+  booking_id: string;
+  status: string;
+  audience: string;
+  claim_token: string;
+  created_at: string | null;
+  client_name: string;
+  client_email: string;
+  client_company: string;
+  issue_title: string;
+  issue_category: string;
+  priority: string;
+  start_time: string | null;
+  end_time: string | null;
+  timezone: string;
+  issue_description: string;
+};
+
 export type ProductMember = {
   id: string;
   product_id: string;
@@ -377,6 +415,10 @@ export type ProductMember = {
   role: "calendar_controller" | "member" | "viewer" | string;
   membership_status: "active" | "inactive" | string;
   invitation_status: string;
+  verification_status: "pending" | "verified" | "expired";
+  verified_at: string | null;
+  verification_expires_at: string | null;
+  has_login: boolean;
   added_by: string;
   added_by_name: string;
   date_added: string;

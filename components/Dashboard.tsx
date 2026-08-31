@@ -44,16 +44,19 @@ import EventEditorDrawer, {
   type EventEditorDraft
 } from "@/components/EventEditorDrawer";
 import SchedulingPage from "@/components/SchedulingPage";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
+import { clearSession, getAccessToken, getRefreshToken } from "@/lib/session";
 import type {
   Availability,
   Booking,
+  BookingClaimAlert,
   Contact,
   DashboardStats,
   EventType,
   GoogleCalendarStatus,
   MemberAvailability,
   Product,
+  ProductController,
   ProductMeeting,
   ProductMember,
   TeamAvailability,
@@ -101,7 +104,8 @@ const emptyStats: DashboardStats = {
   upcoming_bookings: 0,
   team_members: 0,
   scheduled_team_meetings: 0,
-  pending_invitations: 0
+  pending_invitations: 0,
+  pending_client_bookings: 0
 };
 
 const defaultContactDraft = {
@@ -134,6 +138,12 @@ function parseDomainLines(value: string) {
     .map((item) => item.trim())
     .filter(Boolean);
 }
+
+const approvedDomainHelp =
+  "One exact origin per line (scheme + host + port). https://aws.amazon.com is not the same as https://www.amazon.com. There is no catch-all domain.";
+
+const controllerEmailHelp =
+  "Verified controller mailboxes receive booking-request email for this workspace. Unverified addresses never get mail. Product owners manage this list — it is not the dashboard login by itself.";
 
 function productPayloadFromDraft(draft: typeof defaultProductDraft) {
   return {
@@ -270,6 +280,10 @@ export default function Dashboard() {
   const [showProductEdit, setShowProductEdit] = useState(false);
   const [showMemberCreate, setShowMemberCreate] = useState(false);
   const [showMeetingCreate, setShowMeetingCreate] = useState(false);
+  const [showAddController, setShowAddController] = useState(false);
+  const [controllerEmailDraft, setControllerEmailDraft] = useState("");
+  const [controllers, setControllers] = useState<ProductController[]>([]);
+  const [claimAlerts, setClaimAlerts] = useState<BookingClaimAlert[]>([]);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [productMenuOpen, setProductMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -374,7 +388,7 @@ export default function Dashboard() {
       window.history.replaceState({}, "", "/dashboard");
     }
     setMeetingDraft(defaultMeetingDraft(Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kolkata"));
-    const storedToken = localStorage.getItem("calendar_token");
+    const storedToken = getAccessToken();
     if (!storedToken) {
       router.replace("/login");
       return;
@@ -440,10 +454,10 @@ export default function Dashboard() {
         localStorage.removeItem(selectedProductKey);
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to load dashboard");
-      if ((caught as { status?: number }).status === 401) {
-        logout();
+      if (handleExpiredSession(caught)) {
+        return;
       }
+      setError(caught instanceof Error ? caught.message : "Unable to load dashboard");
     }
   }
 
@@ -509,6 +523,17 @@ export default function Dashboard() {
     applyTeamAvailability(teamAvailabilityRules);
     setMembers(memberItems);
     setMeetings(meetingItems);
+    try {
+      const [controllerItems, alertItems] = await Promise.all([
+        api.productControllers(tokenValue, productId),
+        api.claimAlerts(tokenValue, productId)
+      ]);
+      setControllers(controllerItems);
+      setClaimAlerts(alertItems);
+    } catch {
+      setControllers([]);
+      setClaimAlerts([]);
+    }
     setSelectedRecipients((current) =>
       current.filter((recipientId) =>
         memberItems.some((member) => member.user_id === recipientId && member.membership_status === "active")
@@ -537,11 +562,32 @@ export default function Dashboard() {
     }
   }
 
-  function logout() {
-    localStorage.removeItem("calendar_token");
-    localStorage.removeItem("calendar_user");
+  function endSession() {
+    clearSession();
     localStorage.removeItem(selectedProductKey);
+    setToken("");
+    setUser(null);
     router.replace("/login");
+  }
+
+  async function logout() {
+    const refreshToken = getRefreshToken();
+    try {
+      // Revoke server-side first so the refresh token cannot outlive the browser session.
+      await api.logout(token, refreshToken ? { refresh_token: refreshToken } : {});
+    } catch {
+      // A failed revoke must not trap the user in a signed-in UI.
+    }
+    endSession();
+  }
+
+  // The API client renews silently; a 401 that still surfaces means the refresh token is gone too.
+  function handleExpiredSession(caught: unknown) {
+    if (caught instanceof ApiError && caught.status === 401) {
+      endSession();
+      return true;
+    }
+    return false;
   }
 
   async function createProduct(event: React.FormEvent<HTMLFormElement>) {
@@ -693,6 +739,11 @@ export default function Dashboard() {
     setNotice("Invitation link copied");
   }
 
+  async function copyWidgetSnippet(snippet: string) {
+    await navigator.clipboard.writeText(snippet);
+    setNotice("Widget snippet copied");
+  }
+
   async function refreshGoogleCalendarStatus(tokenValue = token) {
     if (!tokenValue) {
       return;
@@ -800,9 +851,26 @@ export default function Dashboard() {
       await refreshProducts(token, selectedProduct.id);
       setMemberDraft(defaultMemberDraft);
       setShowMemberCreate(false);
-      setNotice("Team member added");
+      setNotice("Team member added. Verification email sent — they join the shift rotation once verified.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to add team member");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function resendMemberVerification(member: ProductMember) {
+    if (!selectedProduct) {
+      return;
+    }
+    setSaving(`verify-member:${member.id}`);
+    setError("");
+    try {
+      const updated = await api.resendMemberVerification(token, selectedProduct.id, member.id);
+      setMembers((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setNotice(`Verification email resent to ${updated.email}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to resend verification");
     } finally {
       setSaving("");
     }
@@ -1044,6 +1112,88 @@ export default function Dashboard() {
       setNotice("Booking approved and notifications triggered");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to approve booking");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function claimAlertBooking(alert: BookingClaimAlert) {
+    if (!selectedProduct) {
+      return;
+    }
+    setSaving(`claim:${alert.booking_id}`);
+    setError("");
+    try {
+      await api.claimClientBooking(token, selectedProduct.id, alert.booking_id);
+      await refreshProductData();
+      setNotice("Request accepted. Meeting invite is on the way.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to accept this request");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function reloadControllers() {
+    if (!selectedProduct) {
+      return;
+    }
+    const items = await api.productControllers(token, selectedProduct.id);
+    setControllers(items);
+  }
+
+  async function submitAddController(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProduct) {
+      return;
+    }
+    setSaving("add-controller");
+    setError("");
+    try {
+      await api.addProductController(token, selectedProduct.id, controllerEmailDraft.trim());
+      setControllerEmailDraft("");
+      setShowAddController(false);
+      await reloadControllers();
+      setNotice("Verification email sent. Mailbox must verify within 7 days.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to add controller");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function resendController(controller: ProductController) {
+    if (!selectedProduct) {
+      return;
+    }
+    setSaving(`resend-controller:${controller.id}`);
+    setError("");
+    try {
+      await api.resendProductController(token, selectedProduct.id, controller.id);
+      await reloadControllers();
+      setNotice("Verification email resent");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to resend verification");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function removeController(controller: ProductController) {
+    if (!selectedProduct) {
+      return;
+    }
+    if (!window.confirm(`Remove ${controller.email} from controller mailboxes?`)) {
+      return;
+    }
+    setSaving(`remove-controller:${controller.id}`);
+    setError("");
+    try {
+      await api.removeProductController(token, selectedProduct.id, controller.id);
+      await reloadControllers();
+      setNotice("Controller mailbox removed");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to remove controller");
     } finally {
       setSaving("");
     }
@@ -1355,7 +1505,7 @@ export default function Dashboard() {
               <div className="panel-heading">
                 <div>
                   <h2 id="create-product-title">Add product</h2>
-                  <p>Create a product workspace with its own team, meetings, and invitations.</p>
+                  <p>Create a product workspace with its own team, approved website origins, controller email, and widget.</p>
                 </div>
                 <button
                   aria-label="Close add product dialog"
@@ -1426,15 +1576,19 @@ export default function Dashboard() {
                     value={productDraft.approvedDomainsText}
                     onChange={(event) => setProductDraft((current) => ({ ...current, approvedDomainsText: event.target.value }))}
                   />
-                  <small className="field-note">One domain per line. Required before embedding this widget on an external website.</small>
+                  <small className="field-note">{approvedDomainHelp}</small>
                 </label>
                 <label>
-                  Controller email
+                  Primary controller email
                   <input
                     type="email"
+                    placeholder="info@organization.com"
                     value={productDraft.controllerEmail}
                     onChange={(event) => setProductDraft((current) => ({ ...current, controllerEmail: event.target.value }))}
                   />
+                  <small className="field-note">
+                    Seeded as verified for this workspace. Add more aliases later from Product settings with Add controller.
+                  </small>
                 </label>
                 <label>
                   Booking mode
@@ -1447,6 +1601,7 @@ export default function Dashboard() {
                     <option value="instant">Instant booking</option>
                     <option value="approval">Approval required</option>
                   </select>
+                  <small className="field-note">Approval required notifies verified controller mailboxes and shift claim alerts. Instant books the assigned team member immediately. A page visit never sends mail.</small>
                 </label>
                 <label className="wide-field">
                   Widget action label
@@ -1458,6 +1613,57 @@ export default function Dashboard() {
                 <button className="blue-action full wide-field" disabled={saving === "product"} type="submit">
                   {saving === "product" ? <Loader2 className="spin" size={18} /> : <Plus size={18} />}
                   Add product
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {showAddController && (
+          <div
+            className="modal-backdrop"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setShowAddController(false);
+              }
+            }}
+          >
+            <form
+              aria-labelledby="add-controller-title"
+              aria-modal="true"
+              className="modal-card controller-modal"
+              onSubmit={submitAddController}
+              role="dialog"
+            >
+              <div className="panel-heading">
+                <div>
+                  <h2 id="add-controller-title">Add controller</h2>
+                  <p>Shared aliases like info@, sales@, or contactus@ work. We send a verify link valid for 7 days.</p>
+                </div>
+                <button
+                  aria-label="Close add controller dialog"
+                  className="icon-button"
+                  onClick={() => setShowAddController(false)}
+                  type="button"
+                >
+                  <X size={17} />
+                </button>
+              </div>
+              <div className="event-form">
+                <label className="wide-field">
+                  Email
+                  <input
+                    autoFocus
+                    type="email"
+                    placeholder="info@organization.com"
+                    value={controllerEmailDraft}
+                    onChange={(event) => setControllerEmailDraft(event.target.value)}
+                    required
+                  />
+                </label>
+                <button className="blue-action full wide-field" disabled={saving === "add-controller"} type="submit">
+                  {saving === "add-controller" ? <Loader2 className="spin" size={18} /> : <Mail size={18} />}
+                  Send verification
                 </button>
               </div>
             </form>
@@ -1482,6 +1688,46 @@ export default function Dashboard() {
               <div className="inline-alert">
                 <ShieldCheck size={18} />
                 This product is inactive. You can review existing data, but creation actions are disabled.
+              </div>
+            )}
+
+            {claimAlerts.length > 0 && (
+              <div className="claim-alerts-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>Shift claim alerts</h2>
+                    <p>Accept a request for your coverage window. First accept wins — dashboard or email.</p>
+                  </div>
+                </div>
+                <div className="claim-alerts-list">
+                  {claimAlerts.map((alert) => (
+                    <article className="claim-alert-card" key={alert.id}>
+                      <div>
+                        <strong>{alert.issue_title || "Booking request"}</strong>
+                        <p>
+                          {alert.client_name}
+                          {alert.client_company ? ` · ${alert.client_company}` : ""} · {alert.priority}
+                        </p>
+                        <small>
+                          {alert.start_time
+                            ? new Date(alert.start_time).toLocaleString(undefined, {
+                                dateStyle: "medium",
+                                timeStyle: "short"
+                              })
+                            : "Time pending"}
+                          {alert.audience === "controllers_fallback" ? " · Fallback to controllers" : " · On your shift"}
+                        </small>
+                      </div>
+                      <button
+                        className="blue-action compact"
+                        disabled={productInactive || saving === `claim:${alert.booking_id}`}
+                        onClick={() => claimAlertBooking(alert)}
+                      >
+                        {saving === `claim:${alert.booking_id}` ? "Accepting…" : "Accept"}
+                      </button>
+                    </article>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1829,6 +2075,9 @@ export default function Dashboard() {
                           <option value="calendar_controller">Calendar Controller</option>
                           <option value="viewer">Viewer</option>
                         </select>
+                        <small className="field-note">
+                          Calendar Controller can approve requests for this workspace. Member only takes meetings. Do not share one password — add a deputy as Calendar Controller with their own login.
+                        </small>
                       </label>
                       <button className="blue-action full wide-field" disabled={saving === "member"} type="submit">
                         {saving === "member" ? <Loader2 className="spin" size={18} /> : <UserPlus size={18} />}
@@ -1853,7 +2102,7 @@ export default function Dashboard() {
                       <strong>Email</strong>
                       <strong>Role</strong>
                       <strong>Status</strong>
-                      <strong>Invitation</strong>
+                      <strong>Work email</strong>
                       <span />
                     </div>
                     {filteredMembers.map((member) => (
@@ -1862,7 +2111,25 @@ export default function Dashboard() {
                         <span>{member.email}</span>
                         <span>{member.role.replace("_", " ")}</span>
                         <span>{member.membership_status}</span>
-                        <span>{member.invitation_status}</span>
+                        <span className="member-verify-cell">
+                          <span className={`controller-status status-${member.verification_status}`}>
+                            {member.verification_status === "verified"
+                              ? "Verified"
+                              : member.verification_status === "expired"
+                                ? "Link expired"
+                                : "Pending verification"}
+                          </span>
+                          {member.verification_status !== "verified" && can(selectedProduct, "manage_members") && (
+                            <button
+                              className="ghost-action compact"
+                              disabled={productInactive || saving === `verify-member:${member.id}`}
+                              onClick={() => resendMemberVerification(member)}
+                              type="button"
+                            >
+                              {saving === `verify-member:${member.id}` ? "Sending…" : "Resend"}
+                            </button>
+                          )}
+                        </span>
                         <button
                           className="icon-button danger"
                           disabled={saving === member.id || member.user_id === user.id || !can(selectedProduct, "manage_members")}
@@ -2505,6 +2772,7 @@ export default function Dashboard() {
                           <option value="instant">Instant booking</option>
                           <option value="approval">Approval required</option>
                         </select>
+                        <small className="field-note">Approval required notifies verified controller mailboxes and shift claim alerts. Instant books the assigned team member immediately. A page visit never sends mail.</small>
                       </label>
                       <label className="wide-field">
                         Approved website domains
@@ -2515,16 +2783,66 @@ export default function Dashboard() {
                             setProductDraft((current) => ({ ...current, approvedDomainsText: event.target.value }))
                           }
                         />
-                        <small className="field-note">One exact origin per line, including https:// when used by the website.</small>
+                        <small className="field-note">{approvedDomainHelp}</small>
                       </label>
-                      <label>
-                        Controller email
-                        <input
-                          type="email"
-                          value={productDraft.controllerEmail}
-                          onChange={(event) => setProductDraft((current) => ({ ...current, controllerEmail: event.target.value }))}
-                        />
-                      </label>
+                      <div className="wide-field controller-mailboxes">
+                        <div className="controller-mailboxes-head">
+                          <div>
+                            <strong>Controller emails</strong>
+                            <small className="field-note">{controllerEmailHelp}</small>
+                          </div>
+                          {can(selectedProduct, "manage_controllers") && (
+                            <button
+                              type="button"
+                              className="outline-action compact"
+                              disabled={productInactive}
+                              onClick={() => {
+                                setControllerEmailDraft("");
+                                setShowAddController(true);
+                              }}
+                            >
+                              <Plus size={16} />
+                              Add controller
+                            </button>
+                          )}
+                        </div>
+                        {controllers.length === 0 ? (
+                          <p className="empty-inline">No controller mailboxes yet. Add shared aliases like info@ or sales@.</p>
+                        ) : (
+                          <ul className="controller-mailbox-list">
+                            {controllers.map((controller) => (
+                              <li key={controller.id}>
+                                <div>
+                                  <strong>{controller.email}</strong>
+                                  <span className={`controller-status status-${controller.status}`}>{controller.status}</span>
+                                </div>
+                                {can(selectedProduct, "manage_controllers") && (
+                                  <div className="controller-mailbox-actions">
+                                    {controller.status !== "verified" && (
+                                      <button
+                                        type="button"
+                                        className="outline-action compact"
+                                        disabled={saving === `resend-controller:${controller.id}`}
+                                        onClick={() => resendController(controller)}
+                                      >
+                                        Resend verify
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className="ghost-action compact"
+                                      disabled={saving === `remove-controller:${controller.id}`}
+                                      onClick={() => removeController(controller)}
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                       <label>
                         Support email
                         <input
@@ -2568,6 +2886,21 @@ export default function Dashboard() {
                         <code>
                           {`<script src="${publicBase}/widget.js" data-workspace-id="${selectedProduct.public_booking_token}" data-position="${selectedProduct.widget_position || "right"}" async></script>`}
                         </code>
+                        <small className="field-note">
+                          Paste this only on the approved origin for this workspace. The widget is identified by this workspace token, not by looking up the website.
+                        </small>
+                        <button
+                          className="outline-action compact"
+                          onClick={() =>
+                            copyWidgetSnippet(
+                              `<script src="${publicBase}/widget.js" data-workspace-id="${selectedProduct.public_booking_token}" data-position="${selectedProduct.widget_position || "right"}" async></script>`
+                            )
+                          }
+                          type="button"
+                        >
+                          <Copy size={16} />
+                          Copy snippet
+                        </button>
                       </div>
                       <button className="blue-action full wide-field" disabled={saving === "product-update"} type="submit">
                         {saving === "product-update" ? <Loader2 className="spin" size={18} /> : <Save size={18} />}
@@ -2818,6 +3151,10 @@ function MetricGrid({ stats }: { stats: DashboardStats }) {
       <div className="metric">
         <span>Upcoming bookings</span>
         <strong>{stats.upcoming_bookings}</strong>
+      </div>
+      <div className="metric">
+        <span>Pending requests</span>
+        <strong>{stats.pending_client_bookings || 0}</strong>
       </div>
       <div className="metric">
         <span>Team members</span>
