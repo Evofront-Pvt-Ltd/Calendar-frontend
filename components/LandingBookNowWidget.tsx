@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   ArrowLeft,
   CalendarCheck,
@@ -11,8 +11,6 @@ import {
   ChevronsRight,
   Clock3,
   Loader2,
-  Mail,
-  Phone,
   ShieldCheck,
   Video,
   X
@@ -41,6 +39,9 @@ type LandingBookNowWidgetProps = {
   singleWorkspaceMode?: boolean;
 };
 
+const BOOKING_HORIZON_DAYS = 60;
+const WEEKDAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const;
+
 function toDateInput(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -48,16 +49,28 @@ function toDateInput(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function addDays(offset: number) {
-  const date = new Date();
+function parseDateInput(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function addDays(offset: number, from = new Date()) {
+  const date = new Date(from);
   date.setHours(0, 0, 0, 0);
   date.setDate(date.getDate() + offset);
   return toDateInput(date);
 }
 
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addMonths(date: Date, offset: number) {
+  return new Date(date.getFullYear(), date.getMonth() + offset, 1);
+}
+
 function formatDate(value: string, options: Intl.DateTimeFormatOptions) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Intl.DateTimeFormat(undefined, options).format(new Date(year, month - 1, day));
+  return new Intl.DateTimeFormat(undefined, options).format(parseDateInput(value));
 }
 
 function formatDateTime(value: string, timezone: string) {
@@ -68,12 +81,47 @@ function formatDateTime(value: string, timezone: string) {
   }).format(new Date(value));
 }
 
-function formatTime(value: string, timezone: string) {
-  return new Intl.DateTimeFormat(undefined, {
+function formatSlotTime(value: string, timezone: string) {
+  return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
     timeZone: timezone
-  }).format(new Date(value));
+  })
+    .format(new Date(value))
+    .toLowerCase()
+    .replace(/\s/g, "");
+}
+
+function mondayOffset(date: Date) {
+  return (date.getDay() + 6) % 7;
+}
+
+function buildMonthCells(viewMonth: Date) {
+  const first = startOfMonth(viewMonth);
+  const leading = mondayOffset(first);
+  const daysInMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0).getDate();
+  const cells: Array<{ date: string | null; day: number | null }> = [];
+
+  for (let index = 0; index < leading; index += 1) {
+    cells.push({ date: null, day: null });
+  }
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), day);
+    cells.push({ date: toDateInput(date), day });
+  }
+  while (cells.length % 7 !== 0) {
+    cells.push({ date: null, day: null });
+  }
+  return cells;
+}
+
+function isBeforeToday(dateValue: string) {
+  return dateValue < addDays(0);
+}
+
+function isBeyondHorizon(dateValue: string) {
+  return dateValue > addDays(BOOKING_HORIZON_DAYS);
 }
 
 function supportWindowLabel(startTime: string, endTime: string) {
@@ -126,7 +174,7 @@ export default function LandingBookNowWidget({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
   const localTimezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kolkata", []);
-  const dates = useMemo(() => Array.from({ length: 14 }, (_, index) => addDays(index)), []);
+  const todayDate = useMemo(() => addDays(0), []);
 
   const [expanded, setExpanded] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -138,11 +186,14 @@ export default function LandingBookNowWidget({
   const [buttonLabel, setButtonLabel] = useState("Book Now");
   const [actionLabel, setActionLabel] = useState("Schedule to connect team");
   const [step, setStep] = useState<BookingStep>(0);
-  const [selectedDate, setSelectedDate] = useState(dates[0]);
+  const [selectedDate, setSelectedDate] = useState(todayDate);
   const [slots, setSlots] = useState<ProductAvailableSlot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<ProductAvailableSlot | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotError, setSlotError] = useState("");
+  const [dateAvailability, setDateAvailability] = useState<Record<string, boolean>>({});
+  const dateAvailabilityRef = useRef(dateAvailability);
+  dateAvailabilityRef.current = dateAvailability;
   const [submitting, setSubmitting] = useState(false);
   const [booking, setBooking] = useState<ClientBooking | null>(null);
   const [notice, setNotice] = useState("");
@@ -202,22 +253,82 @@ export default function LandingBookNowWidget({
     }
   }
 
-  async function loadSlots(productToken: string, date: string) {
-    setSlotsLoading(true);
-    setSlotError("");
+  const fetchSlotsForDate = useCallback(
+    async (productToken: string, date: string) => {
+      return widgetId
+        ? api.widgetAvailability(widgetId, date, currentHostOrigin(hostOrigin))
+        : api.publicProductSlots(productToken, date);
+    },
+    [widgetId, hostOrigin]
+  );
+
+  const loadSlots = useCallback(
+    async (productToken: string, date: string) => {
+      setSlotsLoading(true);
+      setSlotError("");
       setSelectedSlot(null);
-    try {
-      const loaded = widgetId
-        ? await api.widgetAvailability(widgetId, date, currentHostOrigin(hostOrigin))
-        : await api.publicProductSlots(productToken, date);
-      setSlots(loaded);
-    } catch (caught) {
-      setSlots([]);
-      setSlotError(caught instanceof Error ? caught.message : "Unable to load available times");
-    } finally {
-      setSlotsLoading(false);
-    }
-  }
+      try {
+        const loaded = await fetchSlotsForDate(productToken, date);
+        setSlots(loaded);
+        setDateAvailability((current) => ({ ...current, [date]: loaded.length > 0 }));
+      } catch (caught) {
+        setSlots([]);
+        setSlotError(caught instanceof Error ? caught.message : "Unable to load available times");
+        setDateAvailability((current) => ({ ...current, [date]: false }));
+      } finally {
+        setSlotsLoading(false);
+      }
+    },
+    [fetchSlotsForDate]
+  );
+
+  const probeMonthAvailability = useCallback(
+    async (productToken: string, month: Date) => {
+      const cells = buildMonthCells(month);
+      const datesToProbe = cells
+        .map((cell) => cell.date)
+        .filter((date): date is string => {
+          if (!date) {
+            return false;
+          }
+          return !isBeforeToday(date) && !isBeyondHorizon(date) && !(date in dateAvailabilityRef.current);
+        });
+
+      const concurrency = 4;
+      for (let index = 0; index < datesToProbe.length; index += concurrency) {
+        const batch = datesToProbe.slice(index, index + concurrency);
+        await Promise.all(
+          batch.map(async (date) => {
+            if (date in dateAvailabilityRef.current) {
+              return;
+            }
+            try {
+              const loaded = await fetchSlotsForDate(productToken, date);
+              setDateAvailability((current) => {
+                if (current[date] === loaded.length > 0) {
+                  return current;
+                }
+                return { ...current, [date]: loaded.length > 0 };
+              });
+            } catch {
+              setDateAvailability((current) => ({ ...current, [date]: false }));
+            }
+          })
+        );
+      }
+    },
+    [fetchSlotsForDate]
+  );
+
+  const handleProbeMonth = useCallback(
+    (month: Date) => {
+      if (!selectedProductToken) {
+        return;
+      }
+      void probeMonthAvailability(selectedProductToken, month);
+    },
+    [probeMonthAvailability, selectedProductToken]
+  );
 
   function openScheduler() {
     setExpanded(false);
@@ -237,8 +348,9 @@ export default function LandingBookNowWidget({
 
   function resetFlow() {
     setStep(0);
-    setSelectedDate(dates[0]);
+    setSelectedDate(todayDate);
     setSelectedSlot(null);
+    setDateAvailability({});
     setBooking(null);
     setSubmitError("");
     setNotice("");
@@ -494,12 +606,13 @@ export default function LandingBookNowWidget({
                           setSelectedProductToken(token);
                           setSelectedSlot(null);
                           setSlots([]);
+                          setDateAvailability({});
                         }}
                       />
                     )}
                     {step === 1 && selectedProduct && (
                       <TimeStep
-                        dates={dates}
+                        dateAvailability={dateAvailability}
                         product={selectedProduct}
                         selectedDate={selectedDate}
                         selectedSlot={selectedSlot}
@@ -508,6 +621,7 @@ export default function LandingBookNowWidget({
                         slotsLoading={slotsLoading}
                         timezone={form.timezone}
                         onDate={setSelectedDate}
+                        onProbeMonth={handleProbeMonth}
                         onSlot={setSelectedSlot}
                         onTimezone={(timezone) => updateForm("timezone", timezone)}
                       />
@@ -662,7 +776,7 @@ function DetailsStep({
 }
 
 function TimeStep({
-  dates,
+  dateAvailability,
   product,
   selectedDate,
   selectedSlot,
@@ -671,10 +785,11 @@ function TimeStep({
   slotsLoading,
   timezone,
   onDate,
+  onProbeMonth,
   onSlot,
   onTimezone
 }: {
-  dates: string[];
+  dateAvailability: Record<string, boolean>;
   product: PublicLandingProduct;
   selectedDate: string;
   selectedSlot: ProductAvailableSlot | null;
@@ -683,73 +798,156 @@ function TimeStep({
   slotsLoading: boolean;
   timezone: string;
   onDate: (date: string) => void;
+  onProbeMonth: (month: Date) => void;
   onSlot: (slot: ProductAvailableSlot) => void;
   onTimezone: (timezone: string) => void;
 }) {
-  return (
-    <div className="interview-time-layout">
-      <aside className="interview-product-card">
-        <span className="product-avatar" style={{ background: product.color || "#006bff" }}>
-          {product.icon || product.name.slice(0, 1).toUpperCase()}
-        </span>
-        <h3>{product.name}</h3>
-        {product.description && <p>{product.description}</p>}
-        <div>
-          <span>
-            <Clock3 size={16} />
-            {product.appointment_duration_minutes} min
-          </span>
-          <span>
-            <Video size={16} />
-            Google Meet when connected
-          </span>
-          <span>
-            <ShieldCheck size={16} />
-            {supportWindowLabel(product.support_start_time, product.support_end_time)} {product.timezone}
-          </span>
-        </div>
-      </aside>
-      <div className="interview-slots-panel">
-        <label>
-          Preferred timezone
-          <input list="interview-timezone-options" value={timezone} onChange={(event) => onTimezone(event.target.value)} />
-          <datalist id="interview-timezone-options">
-            {[timezone, product.timezone, "Asia/Kolkata", "UTC", "America/New_York", "Europe/London"].filter(
-              (value, index, values) => value && values.indexOf(value) === index
-            ).map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </datalist>
-        </label>
+  const [viewMonth, setViewMonth] = useState(() => startOfMonth(parseDateInput(selectedDate)));
+  const monthCells = useMemo(() => buildMonthCells(viewMonth), [viewMonth]);
+  const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(viewMonth);
+  const selectedDateLabel = new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long"
+  }).format(parseDateInput(selectedDate));
+  const minMonth = startOfMonth(parseDateInput(addDays(0)));
+  const maxMonth = startOfMonth(parseDateInput(addDays(BOOKING_HORIZON_DAYS)));
+  const canGoPrev = viewMonth.getTime() > minMonth.getTime();
+  const canGoNext = viewMonth.getTime() < maxMonth.getTime();
 
-        <div>
-          <h3>Select a date</h3>
-          <div className="interview-date-grid">
-            {dates.map((date) => (
-              <button
-                className={selectedDate === date ? "active" : ""}
-                key={date}
-                onClick={() => onDate(date)}
-                type="button"
-              >
-                <span>{formatDate(date, { weekday: "short" })}</span>
-                <strong>{formatDate(date, { day: "numeric", month: "short" })}</strong>
-              </button>
-            ))}
+  useEffect(() => {
+    onProbeMonth(viewMonth);
+  }, [viewMonth, onProbeMonth]);
+
+  function dateStatus(date: string) {
+    if (isBeforeToday(date) || isBeyondHorizon(date)) {
+      return "disabled" as const;
+    }
+    if (dateAvailability[date] === false) {
+      return "unavailable" as const;
+    }
+    if (dateAvailability[date] === true) {
+      return "available" as const;
+    }
+    return "pending" as const;
+  }
+
+  return (
+    <div className="booking-calendar-layout">
+      <div className="booking-meta-bar">
+        <div className="booking-product-inline">
+          <span className="product-avatar" style={{ background: product.color || "#006bff" }}>
+            {product.icon || product.name.slice(0, 1).toUpperCase()}
+          </span>
+          <div className="booking-product-copy">
+            <h3>{product.name}</h3>
+            {product.description ? <p>{product.description}</p> : null}
+          </div>
+          <div className="booking-product-facts">
+            <span>
+              <Clock3 size={16} />
+              {product.appointment_duration_minutes} min
+            </span>
+            <span>
+              <Video size={16} />
+              Google Meet when connected
+            </span>
+            <span>
+              <ShieldCheck size={16} />
+              <span className="booking-coverage-copy">
+                <strong>{supportWindowLabel(product.support_start_time, product.support_end_time)}</strong>
+                <small>{product.timezone}</small>
+              </span>
+            </span>
           </div>
         </div>
 
-        <div>
-          <h3>Available times</h3>
+        <label className="booking-timezone-field">
+          Preferred timezone
+          <input list="interview-timezone-options" value={timezone} onChange={(event) => onTimezone(event.target.value)} />
+          <datalist id="interview-timezone-options">
+            {[timezone, product.timezone, "Asia/Kolkata", "UTC", "America/New_York", "Europe/London"]
+              .filter((value, index, values) => value && values.indexOf(value) === index)
+              .map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+          </datalist>
+        </label>
+      </div>
+
+      <div className="booking-calendar-split">
+        <section className="booking-month-panel" aria-label="Select a date">
+          <div className="booking-month-header">
+            <h3>{monthLabel}</h3>
+            <div className="booking-month-nav">
+              <button
+                aria-label="Previous month"
+                disabled={!canGoPrev}
+                onClick={() => setViewMonth((current) => addMonths(current, -1))}
+                type="button"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button
+                aria-label="Next month"
+                disabled={!canGoNext}
+                onClick={() => setViewMonth((current) => addMonths(current, 1))}
+                type="button"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          </div>
+
+          <div className="booking-month-grid" role="grid" aria-label={monthLabel}>
+            {WEEKDAY_LABELS.map((label) => (
+              <span className="booking-weekday" key={label}>
+                {label}
+              </span>
+            ))}
+            {monthCells.map((cell, index) => {
+              if (!cell.date || cell.day === null) {
+                return <span className="booking-day-empty" key={`empty-${index}`} />;
+              }
+              const status = dateStatus(cell.date);
+              const disabled = status === "disabled" || status === "unavailable";
+              const className = [
+                "booking-day",
+                status,
+                selectedDate === cell.date ? "selected" : "",
+                cell.date === addDays(0) ? "today" : ""
+              ]
+                .filter(Boolean)
+                .join(" ");
+
+              return (
+                <button
+                  aria-label={formatDate(cell.date, { weekday: "long", month: "long", day: "numeric" })}
+                  aria-pressed={selectedDate === cell.date}
+                  className={className}
+                  disabled={disabled}
+                  key={cell.date}
+                  onClick={() => onDate(cell.date!)}
+                  type="button"
+                >
+                  {cell.day}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="booking-times-panel" aria-label="Available times">
+          <h3>{selectedDateLabel}</h3>
           {slotsLoading ? (
             <div className="slot-loading-row">
               <Loader2 className="spin" size={18} />
               Loading available times
             </div>
           ) : (
-            <div className="interview-slot-grid">
+            <div className="booking-times-list">
               {slots.map((slot) => (
                 <button
                   className={selectedSlot?.slot_key === slot.slot_key ? "active" : ""}
@@ -757,14 +955,16 @@ function TimeStep({
                   onClick={() => onSlot(slot)}
                   type="button"
                 >
-                  {formatTime(slot.start_time_utc, timezone)}
+                  {formatSlotTime(slot.start_time_utc, timezone)}
                 </button>
               ))}
-              {slots.length === 0 && <p>No team connection times are available for this date. Please choose another date.</p>}
+              {slots.length === 0 && (
+                <p>No team connection times are available for this date. Please choose another date.</p>
+              )}
             </div>
           )}
           {slotError && <p className="interview-error compact">{slotError}</p>}
-        </div>
+        </section>
       </div>
     </div>
   );

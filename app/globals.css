@@ -5652,8 +5652,8 @@ Google OAuth button mark is parked for future reactivation.
 
 .interview-modal {
   display: grid;
-  width: min(940px, calc(100vw - 40px));
-  max-height: min(760px, calc(100vh - 40px));
+  width: min(980px, calc(100vw - 40px));
+  max-height: min(820px, calc(100vh - 40px));
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid #d6e2f0;
@@ -5778,8 +5778,90 @@ Google OAuth button mark is parked for future reactivation.
 
 .interview-time-layout {
   display: grid;
-  grid-template-columns: minmax(220px, 290px) minmax(0, 1fr);
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
   gap: 22px;
+}
+
+.booking-calendar-layout {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.booking-meta-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border: 1px solid #dce6f2;
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 14px 16px;
+}
+
+.booking-product-inline {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1 1 420px;
+  min-width: 0;
+}
+
+.booking-product-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.booking-product-copy h3 {
+  margin: 0;
+  color: #071b34;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.booking-product-copy p {
+  margin: 0;
+  color: #58708e;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.booking-product-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  min-width: 0;
+}
+
+.booking-product-facts > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #12365f;
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.booking-coverage-copy {
+  display: grid;
+  gap: 1px;
+  line-height: 1.2;
+}
+
+.booking-coverage-copy strong {
+  font-weight: 750;
+}
+
+.booking-coverage-copy small {
+  color: #58708e;
+  font-size: 0.78rem;
+  font-weight: 650;
 }
 
 .interview-product-card {
@@ -5796,6 +5878,7 @@ Google OAuth button mark is parked for future reactivation.
   display: grid;
   width: 44px;
   height: 44px;
+  flex: 0 0 auto;
   place-items: center;
   border-radius: 12px;
   color: #ffffff;
@@ -5804,7 +5887,9 @@ Google OAuth button mark is parked for future reactivation.
 
 .interview-product-card h3,
 .interview-slots-panel h3,
-.interview-success h3 {
+.interview-success h3,
+.booking-month-header h3,
+.booking-times-panel h3 {
   margin: 0;
   color: #071b34;
 }
@@ -5827,10 +5912,206 @@ Google OAuth button mark is parked for future reactivation.
   font-weight: 750;
 }
 
-.interview-slots-panel {
+.interview-slots-panel,
+.booking-schedule-panel {
   display: grid;
   align-content: start;
-  gap: 20px;
+  gap: 18px;
+  min-width: 0;
+}
+
+.booking-timezone-field {
+  display: grid;
+  gap: 6px;
+  width: min(240px, 100%);
+  flex: 0 0 auto;
+  margin: 0;
+  color: #071b34;
+  font-size: 0.84rem;
+  font-weight: 750;
+}
+
+.booking-timezone-field input {
+  min-height: 42px;
+  border: 1px solid #b9cce5;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #071b34;
+  font-weight: 650;
+  padding: 0 12px;
+}
+
+.booking-calendar-split {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.15fr) minmax(210px, 0.85fr);
+  gap: 0;
+  align-items: stretch;
+  min-height: 360px;
+  border: 1px solid #e6ebf2;
+  border-radius: 14px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.booking-month-panel {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  padding: 22px 24px 24px;
+  border-right: 1px solid #e6ebf2;
+}
+
+.booking-month-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.booking-month-header h3 {
+  font-size: 1.15rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.booking-month-nav {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.booking-month-nav button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #4b5563;
+}
+
+.booking-month-nav button:hover:not(:disabled) {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.booking-month-nav button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.booking-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.booking-weekday {
+  display: grid;
+  place-items: center;
+  color: #9ca3af;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding-bottom: 4px;
+}
+
+.booking-day-empty {
+  min-height: 42px;
+}
+
+.booking-day {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1;
+  min-height: 42px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #d1d5db;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.booking-day.available,
+.booking-day.pending {
+  background: #eef0f3;
+  color: #111827;
+}
+
+.booking-day.available:hover,
+.booking-day.pending:hover {
+  background: #e2e5ea;
+}
+
+.booking-day.unavailable,
+.booking-day.disabled {
+  background: transparent;
+  color: #d1d5db;
+  cursor: not-allowed;
+}
+
+.booking-day.selected,
+.booking-day.selected:hover {
+  background: #1f2937;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.booking-day.today:not(.selected) {
+  outline: 1px solid #9ca3af;
+  outline-offset: 0;
+}
+
+.booking-times-panel {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-width: 0;
+  max-height: 420px;
+  padding: 22px 22px 24px;
+  overflow: auto;
+}
+
+.booking-times-panel h3 {
+  color: #6b7280;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.booking-times-list {
+  display: grid;
+  gap: 12px;
+}
+
+.booking-times-list button {
+  display: grid;
+  min-height: 48px;
+  place-items: center;
+  border: 1px solid #111827;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.booking-times-list button:hover {
+  background: #f9fafb;
+}
+
+.booking-times-list button.active {
+  border-color: #111827;
+  background: #111827;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.booking-times-list p,
+.slot-loading-row {
+  color: #6b7280;
 }
 
 .interview-date-grid,
@@ -6040,6 +6321,32 @@ Google OAuth button mark is parked for future reactivation.
   .interview-time-layout {
     grid-template-columns: 1fr;
   }
+
+  .booking-meta-bar {
+    align-items: stretch;
+  }
+
+  .booking-product-inline {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .booking-timezone-field {
+    width: 100%;
+  }
+
+  .booking-calendar-split {
+    grid-template-columns: 1fr;
+  }
+
+  .booking-month-panel {
+    border-right: 0;
+    border-bottom: 1px solid #e6ebf2;
+  }
+
+  .booking-times-panel {
+    max-height: none;
+  }
 }
 
 @media (max-width: 640px) {
@@ -6105,6 +6412,37 @@ Google OAuth button mark is parked for future reactivation.
   .interview-date-grid,
   .interview-slot-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .booking-calendar-split {
+    border-radius: 12px;
+  }
+
+  .booking-meta-bar {
+    padding: 12px;
+  }
+
+  .booking-product-facts {
+    width: 100%;
+    gap: 8px 12px;
+  }
+
+  .booking-month-panel,
+  .booking-times-panel {
+    padding: 18px 16px;
+  }
+
+  .booking-month-grid {
+    gap: 6px;
+  }
+
+  .booking-day,
+  .booking-day-empty {
+    min-height: 38px;
+  }
+
+  .booking-times-list button {
+    min-height: 46px;
   }
 
   .review-card div {
