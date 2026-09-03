@@ -239,12 +239,28 @@ export default function LandingBookNowWidget({
         setSelectedProductToken((current) => current || loaded[0].booking_token);
         return;
       }
-      const loadedProducts = await api.publicProducts();
-      const loaded = singleWorkspaceMode && loadedProducts.length > 0 ? [loadedProducts[0]] : loadedProducts;
-      setProducts(loaded);
+      const pageOrigin = currentHostOrigin(hostOrigin) || (typeof window !== "undefined" ? window.location.origin : "");
+      const loadedProducts = await api.publicProducts(pageOrigin);
+      setProducts(loadedProducts);
       setProductsLoaded(true);
-      if (loaded.length > 0) {
-        setSelectedProductToken((current) => current || loaded[0].booking_token);
+      if (loadedProducts.length === 0) {
+        setProductError(
+          "No workspace is configured for this website. Add this site under Product settings → Approved website domains."
+        );
+        setSelectedProductToken("");
+        return;
+      }
+      setSelectedProductToken((current) => {
+        if (current && loadedProducts.some((product) => product.booking_token === current)) {
+          return current;
+        }
+        return loadedProducts[0].booking_token;
+      });
+      if (loadedProducts[0]?.widget_button_label) {
+        setButtonLabel(loadedProducts[0].widget_button_label);
+      }
+      if (loadedProducts[0]?.widget_action_label) {
+        setActionLabel(loadedProducts[0].widget_action_label);
       }
     } catch (caught) {
       setProductError(caught instanceof Error ? caught.message : "Unable to load products");
@@ -600,7 +616,7 @@ export default function LandingBookNowWidget({
                         productsLoading={productsLoading}
                         selectedProduct={selectedProduct}
                         selectedProductToken={selectedProductToken}
-                        hideProductSelector={embedded || Boolean(widgetId) || singleWorkspaceMode || products.length <= 1}
+                        hideProductSelector={embedded || Boolean(widgetId) || products.length <= 1}
                         updateForm={updateForm}
                         onProductChange={(token) => {
                           setSelectedProductToken(token);
@@ -736,20 +752,24 @@ function DetailsStep({
       {hideProductSelector ? (
         <div className="wide-field selected-workspace-note" aria-live="polite">
           <span>Booking with</span>
-          <strong>{productsLoading ? "Loading workspace..." : selectedProduct?.name || "Workspace"}</strong>
+          <strong>
+            {productsLoading
+              ? "Loading workspace..."
+              : selectedProduct?.name || (productError ? "No workspace available" : "Workspace")}
+          </strong>
           {productError && <small className="field-note error">{productError}</small>}
         </div>
       ) : (
         <label className="wide-field">
           Product
           <select
-            disabled={productsLoading || products.length <= 1}
+            disabled={productsLoading || products.length === 0}
             required
             value={selectedProductToken}
             onChange={(event) => onProductChange(event.target.value)}
           >
             {productsLoading && <option>Loading products...</option>}
-            {!productsLoading && products.length === 0 && <option value="">No active products available</option>}
+            {!productsLoading && products.length === 0 && <option value="">No workspace configured for this website</option>}
             {products.map((product) => (
               <option key={product.booking_token} value={product.booking_token}>
                 {product.name}

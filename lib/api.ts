@@ -10,6 +10,7 @@ import type {
   GoogleCalendarConnect,
   GoogleCalendarStatus,
   MemberAvailability,
+  MissedCall,
   Product,
   ProductAvailabilityPolicy,
   ProductAvailableSlot,
@@ -384,6 +385,15 @@ export const api = {
   claimAlerts(token: string, productId: string) {
     return request<BookingClaimAlert[]>(`/api/products/${productId}/claim-alerts`, { token });
   },
+  missedCalls(token: string, productId: string) {
+    return request<MissedCall[]>(`/api/products/${productId}/missed-calls`, { token });
+  },
+  scanMissedCalls(token: string, productId: string) {
+    return request<MissedCall[]>(`/api/products/${productId}/missed-calls/scan`, {
+      method: "POST",
+      token
+    });
+  },
   claimClientBooking(token: string, productId: string, bookingId: string) {
     return request<ClientBooking>(`/api/products/${productId}/bookings/${bookingId}/claim`, {
       method: "POST",
@@ -610,8 +620,9 @@ export const api = {
   publicInvitation(token: string) {
     return request<PublicMeetingInvitation>(`/api/public/invitations/${encodeURIComponent(token)}`);
   },
-  publicProducts() {
-    return request<PublicLandingProduct[]>("/api/public/products");
+  publicProducts(origin = "") {
+    const query = origin ? `?origin=${encodeURIComponent(origin)}` : "";
+    return request<PublicLandingProduct[]>(`/api/public/products${query}`);
   },
   publicProduct(bookingToken: string) {
     return request<PublicProductBooking>(`/api/public/products/${encodeURIComponent(bookingToken)}`);

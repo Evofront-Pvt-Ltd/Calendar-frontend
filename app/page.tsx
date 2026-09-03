@@ -146,7 +146,7 @@ export default function LandingPage() {
         onMenuChange={setActiveMenu}
         onMobileToggle={() => setMobileOpen((current) => !current)}
       />
-      <LandingBookNowWidget singleWorkspaceMode widgetId={landingWidgetId} />
+      <LandingBookNowWidget widgetId={landingWidgetId} />
 
       <section className="home-hero" id="top">
         <div className="hero-grid-scene" aria-hidden="true" />

@@ -29,7 +29,6 @@ import {
   Send,
   Settings,
   ShieldCheck,
-  Sparkles,
   Star,
   Trash2,
   User as UserIcon,
@@ -44,6 +43,7 @@ import EventEditorDrawer, {
   type EventEditorDraft
 } from "@/components/EventEditorDrawer";
 import SchedulingPage from "@/components/SchedulingPage";
+import NotificationCenter from "@/components/NotificationCenter";
 import { ApiError, api } from "@/lib/api";
 import { clearSession, getAccessToken, getRefreshToken } from "@/lib/session";
 import type {
@@ -55,6 +55,7 @@ import type {
   EventType,
   GoogleCalendarStatus,
   MemberAvailability,
+  MissedCall,
   Product,
   ProductController,
   ProductMeeting,
@@ -74,7 +75,6 @@ type WorkspaceView =
   | "profile"
   | "branding"
   | "my-link"
-  | "notetaker-settings"
   | "callie-settings"
   | "all-settings"
   | "getting-started"
@@ -143,7 +143,7 @@ const approvedDomainHelp =
   "One exact origin per line (scheme + host + port). https://aws.amazon.com is not the same as https://www.amazon.com. There is no catch-all domain.";
 
 const controllerEmailHelp =
-  "Verified controller mailboxes receive booking-request email for this workspace. Unverified addresses never get mail. Product owners manage this list — it is not the dashboard login by itself.";
+  "Verified notification emails receive booking-request, release-to-team, claim, and missed-call alerts for this workspace. Unverified addresses never get mail. Product owners manage this list — it is not the dashboard login by itself.";
 
 function productPayloadFromDraft(draft: typeof defaultProductDraft) {
   return {
@@ -284,6 +284,7 @@ export default function Dashboard() {
   const [controllerEmailDraft, setControllerEmailDraft] = useState("");
   const [controllers, setControllers] = useState<ProductController[]>([]);
   const [claimAlerts, setClaimAlerts] = useState<BookingClaimAlert[]>([]);
+  const [missedCalls, setMissedCalls] = useState<MissedCall[]>([]);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [productMenuOpen, setProductMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -524,15 +525,18 @@ export default function Dashboard() {
     setMembers(memberItems);
     setMeetings(meetingItems);
     try {
-      const [controllerItems, alertItems] = await Promise.all([
+      const [controllerItems, alertItems, missedItems] = await Promise.all([
         api.productControllers(tokenValue, productId),
-        api.claimAlerts(tokenValue, productId)
+        api.claimAlerts(tokenValue, productId),
+        api.missedCalls(tokenValue, productId)
       ]);
       setControllers(controllerItems);
       setClaimAlerts(alertItems);
+      setMissedCalls(missedItems);
     } catch {
       setControllers([]);
       setClaimAlerts([]);
+      setMissedCalls([]);
     }
     setSelectedRecipients((current) =>
       current.filter((recipientId) =>
@@ -1107,11 +1111,12 @@ export default function Dashboard() {
     setSaving(`approve:${booking.id}`);
     setError("");
     try {
-      await api.approveClientBooking(token, selectedProduct.id, booking.id, "Approved from Scheduling page");
+      await api.approveClientBooking(token, selectedProduct.id, booking.id, "Released to team from Scheduling page");
       await reloadTeamAvailability();
-      setNotice("Booking approved and notifications triggered");
+      await refreshProductData();
+      setNotice("Request released to the team. Members on shift can accept.");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to approve booking");
+      setError(caught instanceof Error ? caught.message : "Unable to release booking to the team");
     } finally {
       setSaving("");
     }
@@ -1156,7 +1161,7 @@ export default function Dashboard() {
       await reloadControllers();
       setNotice("Verification email sent. Mailbox must verify within 7 days.");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to add controller");
+      setError(caught instanceof Error ? caught.message : "Unable to add notification email");
     } finally {
       setSaving("");
     }
@@ -1183,7 +1188,7 @@ export default function Dashboard() {
     if (!selectedProduct) {
       return;
     }
-    if (!window.confirm(`Remove ${controller.email} from controller mailboxes?`)) {
+    if (!window.confirm(`Remove ${controller.email} from notification emails?`)) {
       return;
     }
     setSaving(`remove-controller:${controller.id}`);
@@ -1191,9 +1196,9 @@ export default function Dashboard() {
     try {
       await api.removeProductController(token, selectedProduct.id, controller.id);
       await reloadControllers();
-      setNotice("Controller mailbox removed");
+      setNotice("Notification email removed");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to remove controller");
+      setError(caught instanceof Error ? caught.message : "Unable to remove notification email");
     } finally {
       setSaving("");
     }
@@ -1415,9 +1420,30 @@ export default function Dashboard() {
             <ProductAvatar product={selectedProduct} />
             {selectedProduct?.name || "No active product"}
           </span>
-          <a href="#" onClick={(event) => event.preventDefault()}>
-            Get Notetaker
-          </a>
+          <NotificationCenter
+            claimAlerts={claimAlerts}
+            missedCalls={missedCalls}
+            storageKey={user.id}
+            onOpenChange={(nextOpen) => {
+              if (nextOpen) {
+                setProfileMenuOpen(false);
+              }
+            }}
+            onOpenClaim={() => {
+              setProfileMenuOpen(false);
+              setActiveView("scheduling");
+              setSchedulingTab("client-appointments");
+            }}
+            onOpenMissed={() => {
+              setProfileMenuOpen(false);
+              setActiveView("scheduling");
+              setSchedulingTab("client-appointments");
+            }}
+            onOpenScheduling={() => {
+              setProfileMenuOpen(false);
+              setActiveView("scheduling");
+            }}
+          />
           <button
             className="icon-button"
             disabled={!selectedProduct || !can(selectedProduct, "manage_members")}
@@ -1455,7 +1481,6 @@ export default function Dashboard() {
                   {profileMenuButton("profile", <UserIcon size={18} />, "Profile")}
                   {profileMenuButton("branding", <Star size={18} />, "Branding")}
                   {profileMenuButton("my-link", <Link2 size={18} />, "My Link")}
-                  {profileMenuButton("notetaker-settings", <Sparkles size={18} />, "Notetaker settings")}
                   {profileMenuButton("callie-settings", <Mail size={18} />, "Callie settings")}
                   {profileMenuButton("all-settings", <MoreVertical size={18} />, "All settings")}
                 </div>
@@ -1505,7 +1530,7 @@ export default function Dashboard() {
               <div className="panel-heading">
                 <div>
                   <h2 id="create-product-title">Add product</h2>
-                  <p>Create a product workspace with its own team, approved website origins, controller email, and widget.</p>
+                  <p>Create a product workspace with its own team, approved website origins, notification emails, and widget.</p>
                 </div>
                 <button
                   aria-label="Close add product dialog"
@@ -1579,7 +1604,7 @@ export default function Dashboard() {
                   <small className="field-note">{approvedDomainHelp}</small>
                 </label>
                 <label>
-                  Primary controller email
+                  Primary notification email
                   <input
                     type="email"
                     placeholder="info@organization.com"
@@ -1587,7 +1612,7 @@ export default function Dashboard() {
                     onChange={(event) => setProductDraft((current) => ({ ...current, controllerEmail: event.target.value }))}
                   />
                   <small className="field-note">
-                    Seeded as verified for this workspace. Add more aliases later from Product settings with Add controller.
+                    Seeded as verified for this workspace. Add more addresses later from Product settings with Add notification email.
                   </small>
                 </label>
                 <label>
@@ -1601,7 +1626,7 @@ export default function Dashboard() {
                     <option value="instant">Instant booking</option>
                     <option value="approval">Approval required</option>
                   </select>
-                  <small className="field-note">Approval required notifies verified controller mailboxes and shift claim alerts. Instant books the assigned team member immediately. A page visit never sends mail.</small>
+                  <small className="field-note">Approval required notifies verified notification emails first; after release, the team gets claim alerts. Instant books the assigned team member immediately. A page visit never sends mail.</small>
                 </label>
                 <label className="wide-field">
                   Widget action label
@@ -1637,11 +1662,11 @@ export default function Dashboard() {
             >
               <div className="panel-heading">
                 <div>
-                  <h2 id="add-controller-title">Add controller</h2>
+                  <h2 id="add-controller-title">Add notification email</h2>
                   <p>Shared aliases like info@, sales@, or contactus@ work. We send a verify link valid for 7 days.</p>
                 </div>
                 <button
-                  aria-label="Close add controller dialog"
+                  aria-label="Close add notification email dialog"
                   className="icon-button"
                   onClick={() => setShowAddController(false)}
                   type="button"
@@ -2772,7 +2797,7 @@ export default function Dashboard() {
                           <option value="instant">Instant booking</option>
                           <option value="approval">Approval required</option>
                         </select>
-                        <small className="field-note">Approval required notifies verified controller mailboxes and shift claim alerts. Instant books the assigned team member immediately. A page visit never sends mail.</small>
+                        <small className="field-note">Approval required notifies verified notification emails first; after release, the team gets claim alerts. Instant books the assigned team member immediately. A page visit never sends mail.</small>
                       </label>
                       <label className="wide-field">
                         Approved website domains
@@ -2788,7 +2813,7 @@ export default function Dashboard() {
                       <div className="wide-field controller-mailboxes">
                         <div className="controller-mailboxes-head">
                           <div>
-                            <strong>Controller emails</strong>
+                            <strong>Notification emails</strong>
                             <small className="field-note">{controllerEmailHelp}</small>
                           </div>
                           {can(selectedProduct, "manage_controllers") && (
@@ -2802,12 +2827,12 @@ export default function Dashboard() {
                               }}
                             >
                               <Plus size={16} />
-                              Add controller
+                              Add notification email
                             </button>
                           )}
                         </div>
                         {controllers.length === 0 ? (
-                          <p className="empty-inline">No controller mailboxes yet. Add shared aliases like info@ or sales@.</p>
+                          <p className="empty-inline">No notification emails yet. Add shared addresses like info@ or sales@.</p>
                         ) : (
                           <ul className="controller-mailbox-list">
                             {controllers.map((controller) => (
@@ -3107,7 +3132,6 @@ export default function Dashboard() {
 
         {[
           "analytics",
-          "notetaker-settings",
           "callie-settings",
           "all-settings",
           "getting-started",
@@ -3180,7 +3204,6 @@ function viewTitle(view: WorkspaceView) {
     profile: "Profile",
     branding: "Branding",
     "my-link": "My Link",
-    "notetaker-settings": "Notetaker settings",
     "callie-settings": "Callie settings",
     "all-settings": "All settings",
     "getting-started": "Getting started guide",

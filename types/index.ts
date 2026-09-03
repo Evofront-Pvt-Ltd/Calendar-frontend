@@ -115,7 +115,7 @@ export type ClientBooking = {
   end_time_utc: string;
   client_timezone: string;
   product_timezone: string;
-  status: "pending_approval" | "scheduled" | "cancelled" | "rescheduled" | "rejected";
+  status: "pending_approval" | "awaiting_acceptance" | "scheduled" | "cancelled" | "rescheduled" | "rejected" | "missed";
   assignment_strategy: string;
   assignment_reason: string;
   public_booking_reference: string;
@@ -404,6 +404,23 @@ export type BookingClaimAlert = {
   end_time: string | null;
   timezone: string;
   issue_description: string;
+};
+
+export type MissedCall = {
+  id: string;
+  product_id: string;
+  client_name: string;
+  client_email: string;
+  client_company: string;
+  issue_title: string;
+  issue_category: string;
+  priority: string;
+  start_time: string | null;
+  end_time: string | null;
+  timezone: string;
+  missed_call_at: string | null;
+  missed_call_reason: string;
+  status: "missed";
 };
 
 export type ProductMember = {

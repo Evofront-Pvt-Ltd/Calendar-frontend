@@ -42,6 +42,7 @@ export default function ClientAppointmentsPanel({
   const bookings = teamAvailability?.bookings || [];
   const members = teamAvailability?.members || [];
   const pendingCount = bookings.filter((booking) => booking.status === "pending_approval").length;
+  const awaitingCount = bookings.filter((booking) => booking.status === "awaiting_acceptance").length;
   const scheduledCount = bookings.filter((booking) => booking.status === "scheduled").length;
 
   return (
@@ -49,10 +50,14 @@ export default function ClientAppointmentsPanel({
       <div className="panel-heading appointments-heading">
         <div>
           <h2 id="client-appointments-title">Client appointments</h2>
-          <p>Website booking requests for this workspace. Pending approvals stay visible even if you change the availability date. Approve with this product’s team only.</p>
+          <p>
+            Website booking requests for this workspace. Release pending requests to the team, then a member accepts to
+            schedule the meeting.
+          </p>
         </div>
         <div className="appointment-counts" aria-label="Client appointment summary">
           <span>{pendingCount} pending</span>
+          <span>{awaitingCount} awaiting team</span>
           <span>{scheduledCount} scheduled</span>
         </div>
       </div>
@@ -126,6 +131,7 @@ function AppointmentCard({
     !productInactive &&
     booking.status !== "cancelled" &&
     booking.status !== "rejected" &&
+    booking.status !== "missed" &&
     (canManageBooking || booking.assigned_member_id === user.id);
 
   return (
@@ -161,7 +167,11 @@ function AppointmentCard({
           <label className="booking-assignee-select">
             Assign
             <select
-              disabled={productInactive || saving === `assign:${booking.id}` || booking.status !== "pending_approval"}
+              disabled={
+                productInactive ||
+                saving === `assign:${booking.id}` ||
+                (booking.status !== "pending_approval" && booking.status !== "awaiting_acceptance")
+              }
               value={booking.assigned_member_id}
               onChange={(event) => onAssign(booking, event.target.value)}
             >
@@ -228,9 +238,19 @@ function AppointmentCard({
               type="button"
             >
               {saving === `approve:${booking.id}` ? <Loader2 className="spin" size={16} /> : <Check size={16} />}
-              Approve
+              Release to team
             </button>
           </>
+        )}
+        {canManageBooking && booking.status === "awaiting_acceptance" && (
+          <button
+            className="outline-action compact"
+            disabled={productInactive || saving === `reject:${booking.id}`}
+            onClick={() => onReject(booking)}
+            type="button"
+          >
+            Reject
+          </button>
         )}
         <button className="outline-action compact" disabled={!canCancel || saving === booking.id} onClick={() => onCancel(booking)} type="button">
           {saving === booking.id ? <Loader2 className="spin" size={16} /> : <X size={16} />}
@@ -266,7 +286,7 @@ function notificationSummary(notifications: TeamAvailability["notifications"]) {
 }
 
 function statusLabel(status: ClientBooking["status"]) {
-  return status.replace("_", " ");
+  return status.replaceAll("_", " ");
 }
 
 function formatDateTime(value: string) {
