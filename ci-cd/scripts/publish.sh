@@ -18,8 +18,4 @@ docker tag "${IMAGE_NAME}:${GITHUB_SHA}" "${REMOTE}"
 docker push "${REMOTE}"
 docker manifest inspect "${REMOTE}" >/dev/null
 
-python3 ci-cd/scripts/set_deployment_image.py "${DOCKERHUB_USERNAME}/${IMAGE_NAME}" "${GITHUB_SHA}"
-bash ci-cd/scripts/ensure_dockerhub_pull_secret.sh calendar-frontend
-export KUBECONFIG="$HOME/.kube/config"
-kubectl apply -k k8s/overlays/staging
-kubectl -n calendar-frontend rollout status deployment/calendar-frontend --timeout=420s
+bash ci-cd/scripts/commit_sha_manifest.sh
