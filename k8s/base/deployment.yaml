@@ -40,7 +40,7 @@ spec:
       containers:
         - name: calendar-frontend
           image: calendar-frontend:placeholder
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 3000
