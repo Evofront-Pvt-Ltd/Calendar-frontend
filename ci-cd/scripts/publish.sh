@@ -18,4 +18,9 @@ docker tag "${IMAGE_NAME}:${GITHUB_SHA}" "${REMOTE}"
 docker push "${REMOTE}"
 docker manifest inspect "${REMOTE}" >/dev/null
 
+if [[ -n "${KUBE_CONFIG_DATA:-}" ]]; then
+  bash ci-cd/scripts/ensure_dockerhub_pull_secret.sh calendar-frontend
+  bash ci-cd/scripts/relieve_disk_pressure.sh || true
+fi
+
 bash ci-cd/scripts/commit_sha_manifest.sh

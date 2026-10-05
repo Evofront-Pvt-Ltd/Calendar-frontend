@@ -12,7 +12,7 @@ if [ -z "${KUBE_CONFIG_DATA:-}" ]; then
 fi
 
 if [ -z "${DOCKERHUB_USERNAME:-}" ] || [ -z "${DOCKERHUB_PASSWORD:-}" ]; then
-  echo "::error::DOCKERHUB_USERNAME and DOCKERHUB_PASSWORD are required for pull-secret bootstrap" >&2
+  echo "DOCKERHUB_USERNAME and DOCKERHUB_PASSWORD are required for pull-secret bootstrap" >&2
   exit 1
 fi
 
@@ -22,7 +22,7 @@ if printf '%s' "${KUBE_CONFIG_DATA}" | grep -qE '^apiVersion:'; then
 else
   printf '%s' "${KUBE_CONFIG_DATA}" | base64 -d > "$HOME/.kube/config"
   if ! grep -qE '^apiVersion:' "$HOME/.kube/config"; then
-    echo "::error::KUBECONFIG secret must be raw kubeconfig YAML or base64 kubeconfig YAML" >&2
+    echo "KUBECONFIG secret must be raw kubeconfig YAML or base64 kubeconfig YAML" >&2
     exit 1
   fi
 fi
